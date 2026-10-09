@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { renderDiff } from "@hextra/tools/diff.js";
 import { redactSecrets } from "@hextra/core/secrets.js";
-import { tokenizeMarkdown } from "./markdown.js";
+import { tokenizeMarkdown } from "@hextra/tools/markdown.js";
 
 export type TranscriptItem =
   | { kind: "msg"; who: "you" | "ai" | "sys"; text: string }

@@ -2,6 +2,7 @@ export * from "./registry.js";
 export * from "./wiring.js";
 export * from "./diff.js";
 export * from "./fs.js";
+export * from "./markdown.js";
 export * from "./glob.js";
 export * from "./mcp.js";
 export * from "./patch.js";
