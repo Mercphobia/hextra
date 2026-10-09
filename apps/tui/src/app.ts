@@ -107,13 +107,13 @@ async function cmdChat(): Promise<void> {
       audit({ tool, args, phase: "denied" });
       return false;
     }
-    const ans = await ask(rl, `\n[permission] ${tool} ${redactSecrets(args).slice(0, 120)} — (a)llow once / al(w)ays / (d)eny: `);
-    if (ans === "w") {
+    const ans = (await ask(rl, `\n[permission] ${tool} ${redactSecrets(args).slice(0, 120)} — (a)llow once / al(w)ays / (d)eny [a]: `)).toLowerCase();
+    if (["w", "always"].includes(ans)) {
       policy.allow.push(tool);
       savePolicy(policy);
       return true;
     }
-    if (ans === "a" || ans === "y") {
+    if (["a", "al", "allow", "y", "yes", "ya", ""].includes(ans)) {
       sessionGrants.add(tool);
       return true;
     }
