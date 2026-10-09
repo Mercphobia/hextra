@@ -1,6 +1,8 @@
 # hextra
 node_modules/
 dist/
+dist-sea/
+scripts/sea/bundle.mjs
 *.tsbuildinfo
 .env
 *.log

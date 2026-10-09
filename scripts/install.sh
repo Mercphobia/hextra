@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Hextra installer (OpenCode/Hermes style): curl -fsSL https://.../install.sh | bash
+# Hextra installer (OpenCode/Hermes style): curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
 set -euo pipefail
 
+REPO="${HEXTRA_REPO:-Mercphobia/hextra}"
+VERSION="${HEXTRA_VERSION:-latest}"
 OS="linux"
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -16,9 +18,25 @@ if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; then
 else
   DEST="$HOME/.hextra/bin"
 fi
-
-BASE_URL="${HEXTRA_BASE_URL:-https://github.com/Mercphobia/hextra/releases/latest/download}"
-echo "installing hextra $OS-$ARCH -> $DEST"
 mkdir -p "$DEST"
-echo "P0: source install. TODO: download $BASE_URL/hextra-$OS-$ARCH.tar.gz"
-echo "next: hextra setup"
+
+if [ "$VERSION" = "latest" ]; then
+  URL="https://github.com/$REPO/releases/latest/download/hextra-$OS-$ARCH.tar.gz"
+else
+  URL="https://github.com/$REPO/releases/download/$VERSION/hextra-$OS-$ARCH.tar.gz"
+fi
+
+echo "installing hextra $OS-$ARCH -> $DEST"
+if curl -fsSL "$URL" -o /tmp/hextra.tgz; then
+  tar -xzf /tmp/hextra.tgz -C "$DEST"
+  chmod +x "$DEST/hextra"
+  rm -f /tmp/hextra.tgz
+  echo "installed. Run: hextra setup"
+  "$DEST/hextra" doctor || true
+else
+  echo "no prebuilt binary yet ($URL)"
+  echo "source install instead:"
+  echo "  git clone https://github.com/$REPO && cd hextra && npm ci && npm run build"
+  echo "  ln -sf \$PWD/apps/tui/dist/app.js $DEST/hextra"
+  exit 1
+fi

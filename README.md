@@ -30,4 +30,14 @@ MCP servers (optional, `~/.config/hextra/config.json`):
 
 Memory recall is ranked FTS; turns using 3+ tools auto-save a skill when `autoSkill` is on.
 
+## Release (single binary)
+
+```sh
+curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
+hextra update   # self-update from GitHub releases
+```
+
+Local SEA build needs Node >= 25.5 (`mainFormat: module`): `./scripts/build-sea.sh`.
+Tag `v*` triggers CI (linux x64+arm64, darwin arm64) via `.github/workflows/release.yml`.
+
 Commits: English only, SSH-signed (Verified).

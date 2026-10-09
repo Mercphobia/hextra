@@ -1,0 +1,7 @@
+{
+  "main": "scripts/sea/bundle.mjs",
+  "mainFormat": "module",
+  "output": "dist-sea/hextra",
+  "disableExperimentalSeaWarning": true,
+  "execArgv": ["--no-warnings"]
+}

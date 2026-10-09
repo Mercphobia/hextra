@@ -14,7 +14,8 @@ import { decide, loadPolicy, savePolicy } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { wireTools } from "./wiring.js";
-import { appendFileSync, statSync } from "node:fs";
+import { appendFileSync, statSync, existsSync, writeFileSync, renameSync } from "node:fs";
+import { HEXTRA_VERSION } from "./version.js";
 import { join } from "node:path";
 import { dataDir } from "@hextra/core/config.js";
 import { audit } from "@hextra/core/audit.js";
@@ -342,12 +343,61 @@ async function cmdBot(args: string[]): Promise<void> {
   console.log("usage: hextra bot <add|list|rm|ask>");
 }
 
+async function cmdUpdate(): Promise<void> {
+  const res = await fetch("https://api.github.com/repos/Mercphobia/hextra/releases/latest", {
+    headers: { "user-agent": "hextra" },
+  });
+  if (!res.ok) {
+    console.log(`update check failed: ${res.status}`);
+    return;
+  }
+  const rel = (await res.json()) as { tag_name: string; assets: { name: string; browser_download_url: string }[] };
+  const latest = rel.tag_name.replace(/^v/, "");
+  if (latest === HEXTRA_VERSION) {
+    console.log(`already latest (${HEXTRA_VERSION})`);
+    return;
+  }
+  const plat = process.platform === "darwin"
+    ? "darwin"
+    : process.env.TERMUX_VERSION || existsSync("/data/data/com.termux")
+      ? "android"
+      : "linux";
+  const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : null;
+  const asset = arch ? rel.assets.find((a) => a.name === `hextra-${plat}-${arch}.tar.gz`) : undefined;
+  if (!asset) {
+    console.log(`no binary for ${plat}-${arch} in ${rel.tag_name}; install from source`);
+    return;
+  }
+  const runningSea = !process.execPath.endsWith("node") && !process.execPath.endsWith("node.exe");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const tmp = mkdtempSync(join(tmpdir(), "hextra-upd-"));
+  const tgz = join(tmp, "hextra.tgz");
+  console.log(`downloading ${asset.name} (${rel.tag_name})…`);
+  const dl = await fetch(asset.browser_download_url, { headers: { "user-agent": "hextra" } });
+  if (!dl.ok) {
+    console.log(`download failed: ${dl.status}`);
+    return;
+  }
+  writeFileSync(tgz, Buffer.from(await dl.arrayBuffer()));
+  execFileSync("tar", ["-xzf", tgz, "-C", tmp]);
+  const fresh = join(tmp, "hextra");
+  if (!runningSea) {
+    console.log(`downloaded to ${fresh} (source checkout running; replace manually)`);
+    return;
+  }
+  renameSync(fresh, process.execPath);
+  console.log(`updated to ${rel.tag_name}. Restart hextra.`);
+}
+
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "chat";
 if (cmd === "setup" || cmd === "--reset") void cmdSetup();
 else if (cmd === "doctor") void cmdDoctor();
 else if (cmd === "cron") void cmdCron(argv.slice(1));
 else if (cmd === "bot") void cmdBot(argv.slice(1));
+else if (cmd === "update") void cmdUpdate();
 else if (cmd === "tui") {
   if (!process.stdin.isTTY) {
     console.log("hextra tui needs a TTY; use 'hextra' (readline) instead.");
