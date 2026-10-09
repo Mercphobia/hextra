@@ -1,7 +1,6 @@
 import type { HextraConfig } from "./config.js";
 import { chatWithFallback } from "./llm/router.js";
 import type { ChatMessage, ToolSchema } from "./llm/openai-client.js";
-
 export interface ToolHandler {
   (argsJson: string): Promise<string>;
 }
@@ -52,4 +51,14 @@ export async function runAgentLoop(opts: {
     }
   }
   return "(stopped: max tool iterations reached)";
+}
+
+/** Summarize a session into one replacement memory turn (OpenCode /compress). */
+export async function compressHistory(cfg: HextraConfig, history: ChatMessage[]): Promise<ChatMessage[]> {
+  if (!history.length) return history;
+  const res = await chatWithFallback(cfg, [
+    { role: "system", content: "Summarize this coding session into dense notes: goals, decisions, file changes, open tasks. Keep under 1500 chars." },
+    { role: "user", content: history.map((m) => `${m.role}: ${m.content.slice(0, 2000)}`).join("\n\n").slice(0, 12000) },
+  ]);
+  return [{ role: "user", content: `(session summary) ${res.content.slice(0, 2000)}` }];
 }

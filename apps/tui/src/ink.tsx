@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import { Box, Text, render, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
-import { runAgentLoop } from "@hextra/core/agent-loop.js";
+import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
 import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
@@ -14,7 +14,7 @@ import { audit } from "@hextra/core/audit.js";
 import { clampInput } from "@hextra/core/secrets.js";
 import type { ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { wireTools } from "@hextra/tools/wiring.js";
-import { ApprovalBox, SlashHints, ToolBlock, type TranscriptItem } from "./components.js";
+import { ApprovalBox, SlashHints, ToolBlock, Markdown, type TranscriptItem } from "./components.js";
 
 function App({ cfg }: { cfg: HextraConfig }) {
   const { exit } = useApp();
@@ -27,6 +27,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
+  const [tokTotal, setTokTotal] = useState(0);
   const history = useRef<ChatMessage[]>([]);
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
@@ -64,7 +65,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
       return;
     }
     if (input === "/help") {
-      push({ kind: "msg", who: "sys", text: "/new /model <name> /skills /usage /bot <name> /help /quit" });
+      push({ kind: "msg", who: "sys", text: "/new /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
       return;
     }
     if (input === "/skills") {
@@ -74,6 +75,23 @@ function App({ cfg }: { cfg: HextraConfig }) {
     if (input === "/usage") {
       const chars = history.current.reduce((n, m) => n + m.content.length, 0);
       push({ kind: "msg", who: "sys", text: `~${Math.round(chars / 4)} tokens in session history` });
+      return;
+    }
+    if (input === "/undo") {
+      history.current = history.current.slice(0, -2);
+      push({ kind: "msg", who: "sys", text: "(last turn dropped)" });
+      return;
+    }
+    if (input === "/compress") {
+      const turnCfg = activeBot?.model ? { ...cfg, model: activeBot.model } : cfg;
+      setStatus("compressing…");
+      try {
+        history.current = await compressHistory(turnCfg, history.current);
+        push({ kind: "msg", who: "sys", text: "(session compressed)" });
+      } catch (e) {
+        push({ kind: "msg", who: "sys", text: `compress failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+      setStatus("idle");
       return;
     }
     if (input.startsWith("/model ")) {
@@ -152,6 +170,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
       });
       push({ kind: "msg", who: "ai", text: out });
       setDraft("");
+      setTokTotal((n) => n + Math.round((clamped.length + out.length) / 4));
       history.current = [...history.current.slice(-18), { role: "user", content: clamped }, { role: "assistant", content: out }];
       saveMemory(`Q: ${clamped.slice(0, 200)}\nA: ${out.slice(0, 400)}`, ns);
       if (toolsUsed >= 3 && cfg.autoSkill && !out.startsWith("(stopped")) {
@@ -177,12 +196,14 @@ function App({ cfg }: { cfg: HextraConfig }) {
       <Box flexDirection="column" marginY={1}>
         {items.map((m, i) => m.kind === "tool" ? (
           <ToolBlock key={`t${m.id}`} item={m} />
+        ) : m.who === "ai" ? (
+          <Box key={i} flexDirection="column"><Text>◆ </Text><Markdown text={m.text} /></Box>
         ) : (
-          <Text key={i} color={m.who === "you" ? "green" : m.who === "ai" ? "white" : "gray"}>
-            {m.who === "you" ? "> " : m.who === "ai" ? "◆ " : "· "}{m.text}
+          <Text key={i} color={m.who === "you" ? "green" : "gray"}>
+            {m.who === "you" ? "> " : "· "}{m.text}
           </Text>
         ))}
-        {draft ? <Text color="white">◆ {draft}</Text> : null}
+        {draft ? <Box flexDirection="column"><Text>◆ </Text><Markdown text={draft} /></Box> : null}
       </Box>
       {pending ? <ApprovalBox tool={pending.tool} args={pending.args} /> : null}
       <SlashHints query={query} />
@@ -191,7 +212,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
         <TextInput value={query} onChange={setQuery} onSubmit={(v) => void submit(v)} focus={!busy || pending !== null} />
       </Box>
       <Box paddingX={1}>
-        <Text dimColor>{cfg.model} · {listSchemas().length} tools · {status}{pending ? ` · APPROVAL ${pending.tool} (a/w/d)` : ""}</Text>
+        <Text dimColor>{cfg.model} · {listSchemas().length} tools · ~{(tokTotal / 1000).toFixed(1)}k · {status}{pending ? ` · APPROVAL ${pending.tool} (a/w/d)` : ""}</Text>
       </Box>
     </Box>
   );

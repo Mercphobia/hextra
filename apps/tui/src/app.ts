@@ -4,7 +4,7 @@ import {
   loadConfig, saveConfig, defaultWorkspace, DEFAULT_BASE_URL, configPath, type HextraConfig,
 } from "@hextra/core/config.js";
 import { testConnection, type ChatMessage } from "@hextra/core/llm/openai-client.js";
-import { runAgentLoop } from "@hextra/core/agent-loop.js";
+import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
 import { addBot, getBot, loadBots, removeBot, type BotProfile } from "@hextra/core/bots.js";
 import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
@@ -139,6 +139,8 @@ const HELP = [
   "/bot <name> — switch specialist bot",
   "/skills — list saved skills",
   "/usage — rough token estimate of this session",
+  "/undo — drop last turn",
+  "/compress — summarize session to save context",
   "/setup — re-run setup wizard",
   "/quit — exit",
 ].join("\n");
@@ -192,7 +194,7 @@ async function cmdChat(): Promise<void> {
   console.log("10 tools ready. /help for commands.");
   rl.on("close", () => mcp.clients.forEach((c) => c.stop()));
   rl.prompt();
-  rl.on("line", (line: string) => {
+  rl.on("line", async (line: string) => {
     const input = line.trim();
     if (!input) return rl.prompt();
     if (input === "/quit" || input === "/exit") return rl.close();
@@ -213,6 +215,22 @@ async function cmdChat(): Promise<void> {
     if (input === "/usage") {
       const chars = history.reduce((n, m) => n + m.content.length, 0);
       console.log(`~${Math.round(chars / 4)} tokens in session history`);
+      return rl.prompt();
+    }
+    if (input === "/undo") {
+      history = history.slice(0, -2);
+      console.log("(last turn dropped)");
+      return rl.prompt();
+    }
+    if (input === "/compress") {
+      const turnCfg = activeBot?.model ? { ...cfg, model: activeBot.model } : cfg;
+      console.log("(compressing…)");
+      try {
+        history = await compressHistory(turnCfg, history);
+        console.log("(session compressed)");
+      } catch (e) {
+        console.log(`compress failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
       return rl.prompt();
     }
     if (input.startsWith("/model ")) {
