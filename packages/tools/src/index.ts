@@ -1,4 +1,5 @@
 export * from "./registry.js";
+export * from "./wiring.js";
 export * from "./fs.js";
 export * from "./glob.js";
 export * from "./mcp.js";

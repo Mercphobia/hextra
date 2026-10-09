@@ -12,7 +12,7 @@ import { loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
 import { clampInput } from "@hextra/core/secrets.js";
 import type { ChatMessage } from "@hextra/core/llm/openai-client.js";
-import { wireTools } from "./wiring.js";
+import { wireTools } from "@hextra/tools/wiring.js";
 
 interface Msg {
   who: "you" | "ai" | "sys";

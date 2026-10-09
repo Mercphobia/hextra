@@ -1,0 +1,19 @@
+{
+  "name": "@hextra/tui-native",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./dist/native.js",
+    "./*": "./dist/*"
+  },
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@androidtui/core": "0.5.17",
+    "@androidtui/react": "0.5.17",
+    "@hextra/core": "*",
+    "@hextra/memory": "*",
+    "@hextra/tools": "*",
+    "react": "^19.2.0",
+    "ws": "^8.18.0"
+  }
+}

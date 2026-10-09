@@ -1,10 +1,10 @@
-import { registerTool } from "@hextra/tools/registry.js";
-import { readFile, grepFiles } from "@hextra/tools/fs.js";
-import { globFiles } from "@hextra/tools/glob.js";
-import { editFile } from "@hextra/tools/patch.js";
-import { runShell } from "@hextra/tools/shell.js";
-import { webfetch } from "@hextra/tools/web.js";
-import { writeFile } from "@hextra/tools/write.js";
+import { registerTool } from "./registry.js";
+import { readFile, grepFiles } from "./fs.js";
+import { globFiles } from "./glob.js";
+import { editFile } from "./patch.js";
+import { runShell } from "./shell.js";
+import { webfetch } from "./web.js";
+import { writeFile } from "./write.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { saveSkill } from "@hextra/memory/skills.js";
 
@@ -12,7 +12,7 @@ function arg<T>(json: string, key: string): T {
   return (JSON.parse(json) as Record<string, T>)[key];
 }
 
-/** The 10 built-in tools, shared by the readline chat, Ink TUI, cron, and bots. */
+/** The 10 built-in tools, shared by readline chat, Ink TUI, native TUI, cron, and bots. */
 export function wireTools(workspace: string): void {
   registerTool("read_file", "Read a file inside workspace", { type: "object", properties: { path: { type: "string" } } },
     async (a) => readFile(workspace, arg<string>(a, "path")));

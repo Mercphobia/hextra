@@ -4,7 +4,8 @@
     { "path": "./packages/core" },
     { "path": "./packages/tools" },
     { "path": "./packages/memory" },
-    { "path": "./apps/tui" }
+    { "path": "./apps/tui" },
+    { "path": "./apps/tui-native" }
   ],
   "files": []
 }

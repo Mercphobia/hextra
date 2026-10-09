@@ -8,6 +8,6 @@
     ".": "./dist/index.js",
     "./*": "./dist/*"
   },
-  "dependencies": { "@hextra/core": "*" },
+  "dependencies": { "@hextra/core": "*", "@hextra/memory": "*" },
   "scripts": { "build": "tsc -b" }
 }
