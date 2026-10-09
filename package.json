@@ -1,0 +1,20 @@
+{
+  "name": "hextra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hextra — Termux-first AI agent (Hermes logic + OpenCode render, full TS)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test packages/core/dist/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "typescript": "^5.4.0"
+  }
+}

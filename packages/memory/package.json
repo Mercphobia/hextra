@@ -1,0 +1,13 @@
+{
+  "name": "@hextra/memory",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*"
+  },
+  "dependencies": { "@hextra/core": "*" },
+  "scripts": { "build": "tsc -b" }
+}

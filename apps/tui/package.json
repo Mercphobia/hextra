@@ -1,0 +1,12 @@
+{
+  "name": "hextra",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "hextra": "dist/app.js" },
+  "dependencies": {
+    "@hextra/core": "*",
+    "@hextra/memory": "*",
+    "@hextra/tools": "*"
+  },
+  "scripts": { "build": "tsc -b" }
+}
