@@ -2,11 +2,21 @@
   "name": "hextra",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "hextra": "dist/app.js" },
+  "bin": {
+    "hextra": "dist/app.js"
+  },
   "dependencies": {
     "@hextra/core": "*",
     "@hextra/memory": "*",
-    "@hextra/tools": "*"
+    "@hextra/tools": "*",
+    "ink": "^4.4.1",
+    "ink-text-input": "^5.0.1",
+    "react": "^18.3.1"
   },
-  "scripts": { "build": "tsc -b" }
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31"
+  }
 }

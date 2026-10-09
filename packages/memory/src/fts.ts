@@ -7,8 +7,8 @@ export interface MemoryEntry {
   text: string;
 }
 
-export function readEntries(): MemoryEntry[] {
-  const p = join(dataDir(), "memory.jsonl");
+export function readEntries(ns = ""): MemoryEntry[] {
+  const p = join(dataDir(), ns ? `memory-${ns.replace(/[^a-z0-9-_]/gi, "_")}.jsonl` : "memory.jsonl");
   if (!existsSync(p)) return [];
   return readFileSync(p, "utf8")
     .split("\n")
@@ -28,8 +28,8 @@ function tokens(s: string): string[] {
 }
 
 /** Ranked full-text search: term hits weigh most, recency breaks ties. */
-export function searchMemory(query: string, limit = 8): string {
-  const entries = readEntries();
+export function searchMemory(query: string, limit = 8, ns = ""): string {
+  const entries = readEntries(ns);
   const q = new Set(tokens(query));
   if (!q.size || !entries.length) return "";
   return entries

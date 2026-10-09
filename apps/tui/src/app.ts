@@ -1,53 +1,24 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline";
 import {
-  loadConfig, saveConfig, defaultWorkspace, DEFAULT_BASE_URL, type HextraConfig,
+  loadConfig, saveConfig, defaultWorkspace, DEFAULT_BASE_URL, configPath, type HextraConfig,
 } from "@hextra/core/config.js";
 import { testConnection, type ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { runAgentLoop } from "@hextra/core/agent-loop.js";
+import { addBot, getBot, loadBots, removeBot, type BotProfile } from "@hextra/core/bots.js";
 import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
-import { registerTool, listSchemas, handlers } from "@hextra/tools/registry.js";
-import { readFile, grepFiles } from "@hextra/tools/fs.js";
-import { globFiles } from "@hextra/tools/glob.js";
+import { listSchemas, handlers, registerTool } from "@hextra/tools/registry.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
-import { editFile } from "@hextra/tools/patch.js";
 import { decide, loadPolicy, savePolicy } from "@hextra/tools/permissions.js";
-import { runShell } from "@hextra/tools/shell.js";
-import { webfetch } from "@hextra/tools/web.js";
-import { writeFile } from "@hextra/tools/write.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
-import { appendFileSync } from "node:fs";
+import { wireTools } from "./wiring.js";
+import { appendFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@hextra/core/config.js";
-
-function arg<T>(json: string, key: string): T {
-  return (JSON.parse(json) as Record<string, T>)[key];
-}
-
-function wireTools(workspace: string): void {
-  registerTool("read_file", "Read a file inside workspace", { type: "object", properties: { path: { type: "string" } } },
-    async (a) => readFile(workspace, arg<string>(a, "path")));
-  registerTool("write_file", "Write a file inside workspace (asks approval)", { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } },
-    async (a) => writeFile(workspace, arg<string>(a, "path"), arg<string>(a, "content")));
-  registerTool("edit_file", "Replace one exact block in a file (asks approval)", { type: "object", properties: { path: { type: "string" }, search: { type: "string" }, replace: { type: "string" } } },
-    async (a) => editFile(workspace, arg<string>(a, "path"), arg<string>(a, "search"), arg<string>(a, "replace")));
-  registerTool("glob", "List files matching a * pattern", { type: "object", properties: { pattern: { type: "string" } } },
-    async (a) => globFiles(workspace, arg<string>(a, "pattern")).join("\n") || "(no matches)");
-  registerTool("shell", "Run an allowlisted shell command in workspace (asks approval)", { type: "object", properties: { command: { type: "string" } } },
-    async (a) => runShell(workspace, arg<string>(a, "command")));
-  registerTool("grep", "Search file contents in workspace", { type: "object", properties: { pattern: { type: "string" } } },
-    async (a) => grepFiles(workspace, arg<string>(a, "pattern")).join("\n") || "(no matches)");
-  registerTool("webfetch", "Fetch a URL as text", { type: "object", properties: { url: { type: "string" } } },
-    async (a) => webfetch(arg<string>(a, "url")));
-  registerTool("memory_save", "Save a fact to long-term memory", { type: "object", properties: { text: { type: "string" } } },
-    async (a) => { saveMemory(arg<string>(a, "text")); return "saved"; });
-  registerTool("memory_recall", "Recall facts from long-term memory", { type: "object", properties: { query: { type: "string" } } },
-    async (a) => recallMemory(arg<string>(a, "query")) || "(nothing recalled)");
-  registerTool("skill_save", "Save a reusable skill note", { type: "object", properties: { name: { type: "string" }, body: { type: "string" } } },
-    async (a) => { saveSkill(arg<string>(a, "name"), arg<string>(a, "body")); return "skill saved"; });
-}
+import { audit } from "@hextra/core/audit.js";
+import { clampInput, redactSecrets } from "@hextra/core/secrets.js";
 
 function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string> {
   return new Promise((resolve) => rl.question(q, (a: string) => resolve(a.trim())));
@@ -82,12 +53,20 @@ async function cmdSetup(): Promise<void> {
 async function cmdDoctor(): Promise<void> {
   console.log(`node: ${process.version} arch: ${process.arch} platform: ${process.platform}`);
   console.log(`config: ${loadConfig() ? "found" : "missing — run 'hextra setup'"}`);
+  try {
+    const st = statSync(configPath());
+    const mode = (st.mode & 0o777).toString(8);
+    console.log(`config perms: ${mode}${mode === "600" ? " (ok)" : " (warn: want 600)"}`);
+  } catch {
+    console.log("config perms: n/a");
+  }
   console.log(`TERMUX_VERSION: ${process.env.TERMUX_VERSION ?? "(not termux)"}`);
 }
 
 const HELP = [
   "/new — fresh session",
   "/model <name> — switch cloud model",
+  "/bot <name> — switch specialist bot",
   "/skills — list saved skills",
   "/usage — rough token estimate of this session",
   "/setup — re-run setup wizard",
@@ -111,7 +90,12 @@ async function cmdChat(): Promise<void> {
   const sessionGrants = new Set<string>();
   let history: ChatMessage[] = [];
   let toolCount = 0;
-  const system = () => buildSystemPrompt({ skills: loadSkills(), memory: recallMemory("project", 5) });
+  let activeBot: BotProfile | null = null;
+  const system = () => buildSystemPrompt({
+    identity: activeBot?.system,
+    skills: loadSkills(),
+    memory: recallMemory("project", 5, activeBot?.name ?? ""),
+  });
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "hextra> " });
 
   const approve = async (tool: string, args: string): Promise<boolean> => {
@@ -119,9 +103,10 @@ async function cmdChat(): Promise<void> {
     if (d === "allow") return true;
     if (d === "deny") {
       console.log(`\n[deny] ${tool} blocked by policy`);
+      audit({ tool, args, phase: "denied" });
       return false;
     }
-    const ans = await ask(rl, `\n[permission] ${tool} ${args.slice(0, 120)} — (a)llow once / al(w)ays / (d)eny: `);
+    const ans = await ask(rl, `\n[permission] ${tool} ${redactSecrets(args).slice(0, 120)} — (a)llow once / al(w)ays / (d)eny: `);
     if (ans === "w") {
       policy.allow.push(tool);
       savePolicy(policy);
@@ -166,22 +151,51 @@ async function cmdChat(): Promise<void> {
       console.log(`model -> ${cfg.model}`);
       return rl.prompt();
     }
+    if (input === "/bot" || input.startsWith("/bot ")) {
+      const name = input.slice(4).trim();
+      if (!name) {
+        console.log(loadBots().map((b) => `${b.name}${b.model ? ` (${b.model})` : ""}`).join("\n") || "(no bots — hextra bot add)");
+        return rl.prompt();
+      }
+      const bot = getBot(name);
+      if (!bot) {
+        console.log(`no bot '${name}'`);
+        return rl.prompt();
+      }
+      activeBot = bot;
+      history = [];
+      console.log(`bot -> ${bot.name}${bot.model ? ` (model ${bot.model})` : ""}`);
+      return rl.prompt();
+    }
     if (input === "/setup") {
       rl.close();
       void cmdSetup();
       return;
     }
     toolCount = 0;
+    const { text: clamped, truncated } = clampInput(input);
+    if (truncated) console.log(`(input clamped to ${clamped.length} chars)`);
+    const lastArgs = new Map<string, string>();
+    const approveWithAudit = async (tool: string, args: string): Promise<boolean> => {
+      lastArgs.set(tool, args);
+      return approve(tool, args);
+    };
     void runAgentLoop({
-      cfg, system: system(), input, history, tools: listSchemas(), handlers: handlers(), approve,
+      cfg: activeBot?.model ? { ...cfg, model: activeBot.model } : cfg, system: system(), input: clamped, history, tools: listSchemas(), handlers: handlers(), approve: approveWithAudit,
       onToken: (t: string) => process.stdout.write(t),
       onTool: (name: string, phase: "start" | "done" | "denied", ms?: number) => {
         if (phase === "start") {
           toolCount++;
           process.stdout.write(`\n[tool ${name}] running...`);
         }
-        else if (phase === "done") process.stdout.write(` done ${ms}ms\n`);
-        else process.stdout.write(`\n[tool ${name}] denied\n`);
+        else if (phase === "done") {
+          process.stdout.write(` done ${ms}ms\n`);
+          audit({ tool: name, args: lastArgs.get(name) ?? "", phase: "done", ms });
+        }
+        else {
+          process.stdout.write(`\n[tool ${name}] denied\n`);
+          audit({ tool: name, args: lastArgs.get(name) ?? "", phase: "denied" });
+        }
       },
     }).then((out: string) => {
       process.stdout.write("\n");
@@ -192,7 +206,7 @@ async function cmdChat(): Promise<void> {
       }
       toolCount = 0;
       history = [...history.slice(-18), { role: "user", content: input }, { role: "assistant", content: out }];
-      saveMemory(`Q: ${input.slice(0, 200)}\nA: ${out.slice(0, 400)}`);
+      saveMemory(`Q: ${input.slice(0, 200)}\nA: ${out.slice(0, 400)}`, activeBot?.name ?? "");
       rl.prompt();
     }).catch((e: unknown) => {
       console.log(`\nerror: ${e instanceof Error ? e.message : String(e)}`);
@@ -270,9 +284,74 @@ async function cmdCron(args: string[]): Promise<void> {
   console.log("usage: hextra cron <add|list|tick>");
 }
 
+async function cmdBot(args: string[]): Promise<void> {
+  const sub = args[0];
+  if (sub === "list" || !sub) {
+    const bots = loadBots();
+    if (!bots.length) console.log("(no bots)");
+    for (const b of bots) {
+      console.log(`${b.name}${b.model ? ` [${b.model}]` : ""}${b.system ? ` :: ${b.system.slice(0, 80)}` : ""}`);
+    }
+    return;
+  }
+  if (sub === "add") {
+    const name = args[1] ?? "";
+    const mi = args.indexOf("--model");
+    const si = args.indexOf("--system");
+    const bot = addBot(name, {
+      model: mi >= 0 ? args[mi + 1] : undefined,
+      system: si >= 0 ? args.slice(si + 1).join(" ") : undefined,
+    });
+    console.log(`added bot ${bot.name}`);
+    return;
+  }
+  if (sub === "rm") {
+    console.log(removeBot(args[1] ?? "") ? "removed" : "no such bot");
+    return;
+  }
+  if (sub === "ask") {
+    const cfg = loadConfig();
+    if (!cfg) {
+      console.log("No config. Run 'hextra setup' first.");
+      return;
+    }
+    const bot = getBot(args[1] ?? "");
+    if (!bot) {
+      console.log("no such bot");
+      return;
+    }
+    const prompt = args.slice(2).join(" ");
+    if (!prompt) {
+      console.log('usage: hextra bot ask <name> "prompt"');
+      return;
+    }
+    wireTools(cfg.workspace);
+    const profile = bot.model ? { ...cfg, model: bot.model } : cfg;
+    const out = await runAgentLoop({
+      cfg: profile,
+      system: buildSystemPrompt({ identity: bot.system, skills: loadSkills(), memory: recallMemory("project", 5, bot.name) }),
+      input: prompt,
+      tools: listSchemas(),
+      handlers: handlers(),
+      approve: async (tool: string) => decide(loadPolicy(), new Set(), tool) === "allow",
+    });
+    console.log(out);
+    saveMemory(`Q: ${prompt.slice(0, 200)}\nA: ${out.slice(0, 400)}`, bot.name);
+    return;
+  }
+  console.log("usage: hextra bot <add|list|rm|ask>");
+}
+
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "chat";
 if (cmd === "setup" || cmd === "--reset") void cmdSetup();
 else if (cmd === "doctor") void cmdDoctor();
 else if (cmd === "cron") void cmdCron(argv.slice(1));
-else void cmdChat();
+else if (cmd === "bot") void cmdBot(argv.slice(1));
+else if (cmd === "tui") {
+  if (!process.stdin.isTTY) {
+    console.log("hextra tui needs a TTY; use 'hextra' (readline) instead.");
+  } else {
+    void import("./ink.js").then((m) => m.runInkTui());
+  }
+} else void cmdChat();
