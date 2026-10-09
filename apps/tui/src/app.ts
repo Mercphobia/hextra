@@ -176,6 +176,10 @@ async function cmdChat(): Promise<void> {
     toolCount = 0;
     const { text: clamped, truncated } = clampInput(input);
     if (truncated) console.log(`(input clamped to ${clamped.length} chars)`);
+    let gotToken = false;
+    const waiter = setTimeout(() => {
+      if (!gotToken) console.log("(waiting for server…)");
+    }, 10_000);
     const lastArgs = new Map<string, string>();
     const approveWithAudit = async (tool: string, args: string): Promise<boolean> => {
       lastArgs.set(tool, args);
@@ -183,7 +187,10 @@ async function cmdChat(): Promise<void> {
     };
     void runAgentLoop({
       cfg: activeBot?.model ? { ...cfg, model: activeBot.model } : cfg, system: system(), input: clamped, history, tools: listSchemas(), handlers: handlers(), approve: approveWithAudit,
-      onToken: (t: string) => process.stdout.write(t),
+      onToken: (t: string) => {
+        gotToken = true;
+        process.stdout.write(t);
+      },
       onTool: (name: string, phase: "start" | "done" | "denied", ms?: number) => {
         if (phase === "start") {
           toolCount++;
@@ -199,6 +206,7 @@ async function cmdChat(): Promise<void> {
         }
       },
     }).then((out: string) => {
+      clearTimeout(waiter);
       process.stdout.write("\n");
       if (toolCount >= 3 && cfg.autoSkill && !out.startsWith("(stopped")) {
         const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
@@ -210,6 +218,7 @@ async function cmdChat(): Promise<void> {
       saveMemory(`Q: ${input.slice(0, 200)}\nA: ${out.slice(0, 400)}`, activeBot?.name ?? "");
       rl.prompt();
     }).catch((e: unknown) => {
+      clearTimeout(waiter);
       console.log(`\nerror: ${e instanceof Error ? e.message : String(e)}`);
       rl.prompt();
     });

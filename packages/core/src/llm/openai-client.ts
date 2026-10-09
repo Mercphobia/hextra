@@ -76,7 +76,7 @@ export async function chatCompletions(
   opts: { timeoutMs?: number; onToken?: (t: string) => void } = {},
 ): Promise<{ content: string; toolCalls: ToolCall[] }> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 60_000);
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 180_000);
   try {
     const res = await fetch(`${profile.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
@@ -115,7 +115,7 @@ export async function testConnection(profile: ProviderProfile): Promise<{ ok: bo
       clearTimeout(timer);
     }
     const mini = await chatCompletions(profile, [{ role: "user", content: "reply with: ok" }], [], {
-      timeoutMs: 30_000,
+      timeoutMs: 90_000,
     });
     return { ok: true, detail: `chat ok: ${mini.content.slice(0, 40) || "(empty)"}` };
   } catch (e) {
