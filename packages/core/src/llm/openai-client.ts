@@ -69,36 +69,49 @@ async function readSseStream(
   return { content, toolCalls };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function chatCompletions(
   profile: ProviderProfile,
   messages: ChatMessage[],
   tools: ToolSchema[] = [],
   opts: { timeoutMs?: number; onToken?: (t: string) => void } = {},
 ): Promise<{ content: string; toolCalls: ToolCall[] }> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 180_000);
-  try {
-    const res = await fetch(`${profile.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${profile.apiKey}`,
-        "HTTP-Referer": "https://github.com/Mercphobia/hextra",
-        "X-Title": "hextra",
-      },
-      body: JSON.stringify({
-        model: profile.model,
-        messages,
-        tools: tools.length ? tools : undefined,
-        stream: true,
-      }),
-    });
-    if (!res.ok) throw new Error(`provider ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    return await readSseStream(res, opts.onToken ?? (() => {}));
-  } finally {
-    clearTimeout(timer);
+  // Self-hosted providers often rate-limit bursts (e.g. 1 req / 4s).
+  // Retry 429s with a cooldown instead of failing the whole turn.
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await sleep(4500);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 180_000);
+    try {
+      const res = await fetch(`${profile.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${profile.apiKey}`,
+          "HTTP-Referer": "https://github.com/Mercphobia/hextra",
+          "X-Title": "hextra",
+        },
+        body: JSON.stringify({
+          model: profile.model,
+          messages,
+          tools: tools.length ? tools : undefined,
+          stream: true,
+        }),
+      });
+      if (res.status === 429) {
+        lastErr = (await res.text()).slice(0, 300);
+        continue;
+      }
+      if (!res.ok) throw new Error(`provider ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      return await readSseStream(res, opts.onToken ?? (() => {}));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw new Error(`provider 429 (rate limited after retries): ${lastErr}`);
 }
 
 export async function testConnection(profile: ProviderProfile): Promise<{ ok: boolean; detail: string }> {
