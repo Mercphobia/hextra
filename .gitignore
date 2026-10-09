@@ -1,4 +1,5 @@
-# agent
+# hextra
 node_modules/
 .env
 *.log
+dist/

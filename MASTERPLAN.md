@@ -1,4 +1,4 @@
-# MASTERPLAN — AI Agent Termux-First (Hermes Logic + OpenCode Render, Full TS)
+# HEXTRA — AI Agent Termux-First (Hermes Logic + OpenCode Render, Full TS)
 
 > V1: 100% TypeScript, Termux ARM64. Python hanya worker opsional V2.
 > LLM utama: OpenAI-Compatible `/v1`. TUI wajib mirip OpenCode. Installer mirip OpenCode/Hermes.
