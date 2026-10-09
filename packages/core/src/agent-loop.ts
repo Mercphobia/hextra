@@ -15,7 +15,7 @@ export async function runAgentLoop(opts: {
   handlers: Record<string, ToolHandler>;
   maxIterations?: number;
   onToken?: (t: string) => void;
-  onTool?: (name: string, phase: "start" | "done" | "denied", ms?: number) => void;
+  onTool?: (name: string, phase: "start" | "done" | "denied", ms?: number, detail?: { id: string; args: string; result?: string }) => void;
   approve?: (toolName: string, argsJson: string) => Promise<boolean>;
 }): Promise<string> {
   const messages: ChatMessage[] = [
@@ -34,11 +34,11 @@ export async function runAgentLoop(opts: {
     for (const tc of res.toolCalls) {
       const name = tc.function.name;
       if (opts.approve && !(await opts.approve(name, tc.function.arguments))) {
-        opts.onTool?.(name, "denied");
+        opts.onTool?.(name, "denied", undefined, { id: tc.id, args: tc.function.arguments });
         messages.push({ role: "tool", tool_call_id: tc.id, content: "denied by user" });
         continue;
       }
-      opts.onTool?.(name, "start");
+      opts.onTool?.(name, "start", undefined, { id: tc.id, args: tc.function.arguments });
       const t0 = Date.now();
       let out: string;
       try {
@@ -47,7 +47,7 @@ export async function runAgentLoop(opts: {
       } catch (e) {
         out = `tool error: ${e instanceof Error ? e.message : String(e)}`;
       }
-      opts.onTool?.(name, "done", Date.now() - t0);
+      opts.onTool?.(name, "done", Date.now() - t0, { id: tc.id, args: tc.function.arguments, result: out });
       messages.push({ role: "tool", tool_call_id: tc.id, content: out.slice(0, 8000) });
     }
   }
