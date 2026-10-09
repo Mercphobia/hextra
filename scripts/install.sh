@@ -1,46 +1,72 @@
 #!/usr/bin/env bash
-# Hextra installer (OpenCode/Hermes style): curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
+# Hextra installer: curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
 set -euo pipefail
 
 REPO="${HEXTRA_REPO:-Mercphobia/hextra}"
 VERSION="${HEXTRA_VERSION:-latest}"
-OS="linux"
-if [ "$(uname -s)" = "Darwin" ]; then OS="darwin"; fi
-ARCH="$(uname -m)"
-case "$ARCH" in
-  aarch64|arm64) ARCH="arm64" ;;
-  x86_64|amd64) ARCH="x64" ;;
-  *) echo "unsupported arch: $ARCH" >&2; exit 1 ;;
-esac
 
-if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; then
-  echo "Termux detected: native binaries are glibc builds and do not run on Android."
-  echo "Installing from source instead:"
-  echo "  pkg install nodejs git && git clone https://github.com/$REPO && cd hextra"
-  echo "  npm ci && npm run build && export PATH=\"\$PWD/apps/tui/dist:\$PATH\""
-  echo "  (bun alternative: bun install && bun run build)"
-  exit 2
-fi
-DEST="$HOME/.hextra/bin"
-mkdir -p "$DEST"
+is_termux() { [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; }
 
-if [ "$VERSION" = "latest" ]; then
-  URL="https://github.com/$REPO/releases/latest/download/hextra-$OS-$ARCH.tar.gz"
+install_termux() {
+  local src="${HEXTRA_SRC_DIR:-$HOME/hextra}"
+  if [ -z "${HEXTRA_SKIP_PKG:-}" ]; then
+    pkg update -y && pkg install -y nodejs git
+  fi
+  if [ -d "$src/.git" ]; then
+    echo "updating $src"
+    git -C "$src" pull --ff-only
+  else
+    echo "cloning into $src"
+    git clone "${HEXTRA_CLONE_URL:-https://github.com/$REPO}" "$src"
+  fi
+  cd "$src"
+  npm ci
+  npm run build
+  local bindir="${PREFIX:-$HOME/.local}/bin"
+  mkdir -p "$bindir"
+  cat > "$bindir/hextra" <<EOF
+#!/bin/sh
+exec node "$src/apps/tui/dist/app.js" "\$@"
+EOF
+  chmod +x "$bindir/hextra"
+  echo "installed wrapper -> $bindir/hextra"
+  "$bindir/hextra" doctor || true
+  echo "next: hextra setup"
+}
+
+install_binary() {
+  local os="linux"
+  if [ "$(uname -s)" = "Darwin" ]; then os="darwin"; fi
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    aarch64|arm64) arch="arm64" ;;
+    x86_64|amd64) arch="x64" ;;
+    *) echo "unsupported arch: $arch" >&2; exit 1 ;;
+  esac
+  local dest="$HOME/.hextra/bin"
+  mkdir -p "$dest"
+  local url
+  if [ "$VERSION" = "latest" ]; then
+    url="https://github.com/$REPO/releases/latest/download/hextra-$os-$arch.tar.gz"
+  else
+    url="https://github.com/$REPO/releases/download/$VERSION/hextra-$os-$arch.tar.gz"
+  fi
+  echo "installing hextra $os-$arch -> $dest"
+  if curl -fsSL "$url" -o /tmp/hextra.tgz; then
+    tar -xzf /tmp/hextra.tgz -C "$dest"
+    chmod +x "$dest/hextra"
+    rm -f /tmp/hextra.tgz
+    echo "installed. Run: $dest/hextra setup"
+    "$dest/hextra" doctor || true
+  else
+    echo "no prebuilt binary yet ($url); rerun with a published VERSION" >&2
+    exit 1
+  fi
+}
+
+if is_termux; then
+  install_termux
 else
-  URL="https://github.com/$REPO/releases/download/$VERSION/hextra-$OS-$ARCH.tar.gz"
-fi
-
-echo "installing hextra $OS-$ARCH -> $DEST"
-if curl -fsSL "$URL" -o /tmp/hextra.tgz; then
-  tar -xzf /tmp/hextra.tgz -C "$DEST"
-  chmod +x "$DEST/hextra"
-  rm -f /tmp/hextra.tgz
-  echo "installed. Run: hextra setup"
-  "$DEST/hextra" doctor || true
-else
-  echo "no prebuilt binary yet ($URL)"
-  echo "source install instead:"
-  echo "  git clone https://github.com/$REPO && cd hextra && npm ci && npm run build"
-  echo "  ln -sf \$PWD/apps/tui/dist/app.js $DEST/hextra"
-  exit 1
+  install_binary
 fi

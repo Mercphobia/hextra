@@ -6,11 +6,11 @@ import { runAgentLoop } from "@hextra/core/agent-loop.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
-import { decide, loadPolicy } from "@hextra/tools/permissions.js";
+import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
-import { clampInput } from "@hextra/core/secrets.js";
+import { clampInput, redactSecrets } from "@hextra/core/secrets.js";
 import type { ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { wireTools } from "@hextra/tools/wiring.js";
 
@@ -22,21 +22,36 @@ interface Msg {
 function App({ cfg }: { cfg: HextraConfig }) {
   const { exit } = useApp();
   const [messages, setMessages] = useState<Msg[]>([
-    { who: "sys", text: "hextra tui — /help /new /quit. Risky tools are denied here; use readline chat for approvals." },
+    { who: "sys", text: "hextra tui — /help /new /quit. Risky tools ask approval inline." },
   ]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState("idle");
   const [busy, setBusy] = useState(false);
+  const [pendingTool, setPendingTool] = useState<string | null>(null);
   const history = useRef<ChatMessage[]>([]);
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
+  const pendingRef = useRef<{ tool: string; resolve: (ok: boolean) => void } | null>(null);
 
   const push = (m: Msg) => setMessages((prev) => [...prev.slice(-100), m]);
 
   const submit = async (value: string) => {
     const input = value.trim();
     setQuery("");
+    if (pendingRef.current) {
+      const ans = parseApprovalAnswer(input);
+      const p = pendingRef.current;
+      pendingRef.current = null;
+      setPendingTool(null);
+      if (ans === "always") {
+        policy.current.allow.push(p.tool);
+        savePolicy(policy.current);
+      }
+      push({ who: "sys", text: ans === "deny" ? `[denied] ${p.tool}` : `[allowed] ${p.tool}` });
+      p.resolve(ans !== "deny");
+      return;
+    }
     if (!input || busy) return;
     if (input === "/quit" || input === "/exit") {
       exit();
@@ -79,9 +94,12 @@ function App({ cfg }: { cfg: HextraConfig }) {
             return false;
           }
           if (d === "allow") return true;
-          push({ who: "sys", text: `[denied in tui] ${tool} needs approval — rerun in readline chat` });
-          audit({ tool, args, phase: "denied" });
-          return false;
+          push({ who: "sys", text: `[permission] ${tool} ${redactSecrets(args).slice(0, 100)} — answer (a)lways/(a)llow/(d)eny:` });
+          setStatus("waiting approval…");
+          setPendingTool(tool);
+          return new Promise<boolean>((resolve) => {
+            pendingRef.current = { tool, resolve };
+          });
         },
         onToken: (t: string) => {
           draftRef.current += t;
@@ -132,7 +150,10 @@ function App({ cfg }: { cfg: HextraConfig }) {
       </Box>
       <Box borderStyle="single" paddingX={1}>
         <Text color="green">› </Text>
-        <TextInput value={query} onChange={setQuery} onSubmit={(v) => void submit(v)} focus={!busy} />
+        <TextInput value={query} onChange={setQuery} onSubmit={(v) => void submit(v)} focus={!busy || pendingTool !== null} />
+      </Box>
+      <Box paddingX={1}>
+        <Text dimColor>{cfg.model} · {listSchemas().length} tools · {status}{pendingTool ? ` · APPROVAL ${pendingTool} (a/w/d)` : ""}</Text>
       </Box>
     </Box>
   );

@@ -2,16 +2,21 @@
 
 P0 scaffold. See `MASTERPLAN.md` for the full plan.
 
-## Quick start
+## Install
+
+Desktop/server (prebuilt binary):
 
 ```sh
-npm install
-npm run typecheck
-npm run build
-node apps/tui/dist/app.js doctor
-node apps/tui/dist/app.js setup
-node apps/tui/dist/app.js
+curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
 ```
+
+Termux (fully automatic source install — clone, build, wrapper in `$PREFIX/bin`):
+
+```sh
+curl -fsSL https://github.com/Mercphobia/hextra/releases/latest/download/install.sh | bash
+```
+
+Rerun the same command to update. Then `hextra setup`, `hextra`.
 
 ## P2 commands
 
