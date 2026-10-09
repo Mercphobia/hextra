@@ -32,3 +32,11 @@ export function decide(p: Policy, sessionGrants: Set<string>, tool: string): "al
   if (!RISKY_TOOLS.has(tool)) return "allow";
   return "ask";
 }
+
+/** Natural-language approval answers shared by readline chat and native TUI. */
+export function parseApprovalAnswer(ans: string): "once" | "always" | "deny" {
+  const a = ans.trim().toLowerCase();
+  if (["w", "always"].includes(a)) return "always";
+  if (["a", "al", "allow", "y", "yes", "ya", ""].includes(a)) return "once";
+  return "deny";
+}

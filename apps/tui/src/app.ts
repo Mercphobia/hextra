@@ -10,7 +10,7 @@ import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { listSchemas, handlers, registerTool } from "@hextra/tools/registry.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
-import { decide, loadPolicy, savePolicy } from "@hextra/tools/permissions.js";
+import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { wireTools } from "@hextra/tools/wiring.js";
@@ -107,13 +107,13 @@ async function cmdChat(): Promise<void> {
       audit({ tool, args, phase: "denied" });
       return false;
     }
-    const ans = (await ask(rl, `\n[permission] ${tool} ${redactSecrets(args).slice(0, 120)} — (a)llow once / al(w)ays / (d)eny [a]: `)).toLowerCase();
-    if (["w", "always"].includes(ans)) {
+    const ans = parseApprovalAnswer(await ask(rl, `\n[permission] ${tool} ${redactSecrets(args).slice(0, 120)} — (a)llow once / al(w)ays / (d)eny [a]: `));
+    if (ans === "always") {
       policy.allow.push(tool);
       savePolicy(policy);
       return true;
     }
-    if (["a", "al", "allow", "y", "yes", "ya", ""].includes(ans)) {
+    if (ans === "once") {
       sessionGrants.add(tool);
       return true;
     }

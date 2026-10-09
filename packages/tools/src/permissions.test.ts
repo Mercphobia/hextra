@@ -21,6 +21,16 @@ describe("permissions", () => {
   it("session grant allows risky tool once", () => {
     assert.equal(decide(base, new Set(["edit_file"]), "edit_file"), "allow");
   });
+
+  it("parses natural approval answers", async () => {
+    const { parseApprovalAnswer } = await import("./permissions.js");
+    assert.equal(parseApprovalAnswer("al"), "once");
+    assert.equal(parseApprovalAnswer("YA"), "once");
+    assert.equal(parseApprovalAnswer(""), "once");
+    assert.equal(parseApprovalAnswer("w"), "always");
+    assert.equal(parseApprovalAnswer("d"), "deny");
+    assert.equal(parseApprovalAnswer("no"), "deny");
+  });
 });
 
 describe("sandbox", () => {

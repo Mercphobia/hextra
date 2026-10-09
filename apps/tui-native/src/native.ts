@@ -2,7 +2,7 @@ import { loadConfig } from "@hextra/core/config.js";
 import { runAgentLoop } from "@hextra/core/agent-loop.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
-import { decide, loadPolicy } from "@hextra/tools/permissions.js";
+import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { loadSkills } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
@@ -33,7 +33,7 @@ export async function runNativeTui(): Promise<void> {
   wireTools(cfg.workspace);
   const policy = loadPolicy();
   const history: ChatMessage[] = [];
-  const lines: string[] = ["hextra native — /quit to exit. Risky tools are denied here."];
+  const lines: string[] = ["hextra native — /quit to exit. Risky tools ask approval here."];
   const renderer = await core.createCliRenderer();
   const root = renderer.root;
   const layout = new core.BoxRenderable(renderer as never, { flexDirection: "column" } as never);
@@ -60,9 +60,23 @@ export async function runNativeTui(): Promise<void> {
   input.focus();
 
   let busy = false;
+  let pending: { tool: string; resolve: (ok: boolean) => void } | null = null;
   const submit = async (raw: string) => {
     const text = raw.trim();
     input.value = "";
+    if (pending) {
+      const ans = parseApprovalAnswer(text);
+      const p = pending;
+      pending = null;
+      if (ans === "always") {
+        policy.allow.push(p.tool);
+        savePolicy(policy);
+      }
+      lines.push(ans === "deny" ? `· [denied] ${p.tool}` : `· [allowed] ${p.tool}`);
+      paint(busy ? "thinking…" : "idle");
+      p.resolve(ans !== "deny");
+      return;
+    }
     if (!text || busy) return;
     if (text === "/quit" || text === "/exit") {
       renderer.destroy();
@@ -100,9 +114,11 @@ export async function runNativeTui(): Promise<void> {
             return false;
           }
           if (d === "allow") return true;
-          lines.push(`· [denied in native tui] ${tool} needs approval`);
-          audit({ tool, args, phase: "denied" });
-          return false;
+          lines.push(`· [permission] ${tool} — allow? (a)lways/(a)llow once/(d)eny [a]:`);
+          paint("waiting approval…");
+          return new Promise<boolean>((resolve) => {
+            pending = { tool, resolve };
+          });
         },
         onToken: (t: string) => {
           draft += t;
