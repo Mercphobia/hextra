@@ -5,10 +5,12 @@ import {
 } from "@hextra/core/config.js";
 import { testConnection, type ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { runAgentLoop } from "@hextra/core/agent-loop.js";
+import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { registerTool, listSchemas, handlers } from "@hextra/tools/registry.js";
 import { readFile, grepFiles } from "@hextra/tools/fs.js";
 import { globFiles } from "@hextra/tools/glob.js";
+import { connectMcpServers } from "@hextra/tools/mcp.js";
 import { editFile } from "@hextra/tools/patch.js";
 import { decide, loadPolicy, savePolicy } from "@hextra/tools/permissions.js";
 import { runShell } from "@hextra/tools/shell.js";
@@ -16,6 +18,9 @@ import { webfetch } from "@hextra/tools/web.js";
 import { writeFile } from "@hextra/tools/write.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { dataDir } from "@hextra/core/config.js";
 
 function arg<T>(json: string, key: string): T {
   return (JSON.parse(json) as Record<string, T>)[key];
@@ -96,9 +101,16 @@ async function cmdChat(): Promise<void> {
     return;
   }
   wireTools(cfg.workspace);
+  const mcp = await connectMcpServers(cfg.mcpServers ?? []);
+  for (const w of mcp.warnings) console.log(`mcp warn: ${w}`);
+  for (const s of mcp.schemas) {
+    registerTool(s.function.name, s.function.description, s.function.parameters, mcp.handlers[s.function.name]);
+  }
+  if (mcp.schemas.length) console.log(`mcp: ${mcp.schemas.length} tools from ${mcp.clients.length} servers`);
   const policy = loadPolicy();
   const sessionGrants = new Set<string>();
   let history: ChatMessage[] = [];
+  let toolCount = 0;
   const system = () => buildSystemPrompt({ skills: loadSkills(), memory: recallMemory("project", 5) });
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "hextra> " });
 
@@ -123,6 +135,7 @@ async function cmdChat(): Promise<void> {
   };
 
   console.log("10 tools ready. /help for commands.");
+  rl.on("close", () => mcp.clients.forEach((c) => c.stop()));
   rl.prompt();
   rl.on("line", (line: string) => {
     const input = line.trim();
@@ -158,16 +171,26 @@ async function cmdChat(): Promise<void> {
       void cmdSetup();
       return;
     }
+    toolCount = 0;
     void runAgentLoop({
       cfg, system: system(), input, history, tools: listSchemas(), handlers: handlers(), approve,
       onToken: (t: string) => process.stdout.write(t),
       onTool: (name: string, phase: "start" | "done" | "denied", ms?: number) => {
-        if (phase === "start") process.stdout.write(`\n[tool ${name}] running...`);
+        if (phase === "start") {
+          toolCount++;
+          process.stdout.write(`\n[tool ${name}] running...`);
+        }
         else if (phase === "done") process.stdout.write(` done ${ms}ms\n`);
         else process.stdout.write(`\n[tool ${name}] denied\n`);
       },
     }).then((out: string) => {
       process.stdout.write("\n");
+      if (toolCount >= 3 && cfg.autoSkill && !out.startsWith("(stopped")) {
+        const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+        saveSkill(`auto-${stamp}`, `Task: ${input.slice(0, 300)}\nResult: ${out.slice(0, 1500)}`);
+        console.log("(auto-skill saved)");
+      }
+      toolCount = 0;
       history = [...history.slice(-18), { role: "user", content: input }, { role: "assistant", content: out }];
       saveMemory(`Q: ${input.slice(0, 200)}\nA: ${out.slice(0, 400)}`);
       rl.prompt();
@@ -178,7 +201,78 @@ async function cmdChat(): Promise<void> {
   });
 }
 
-const cmd = process.argv[2] ?? "chat";
+async function cmdCronTick(cfg: HextraConfig): Promise<void> {
+  wireTools(cfg.workspace);
+  const policy = loadPolicy();
+  const jobs = dueJobs();
+  if (!jobs.length) {
+    console.log("(no due jobs)");
+    return;
+  }
+  for (const j of jobs) {
+    console.log(`[cron ${j.id}] running: ${j.prompt.slice(0, 80)}`);
+    try {
+      const out = await runAgentLoop({
+        cfg,
+        system: buildSystemPrompt({ skills: loadSkills(), memory: recallMemory("project", 5) }),
+        input: j.prompt,
+        tools: listSchemas(),
+        handlers: handlers(),
+        approve: async (tool: string) => decide(policy, new Set(), tool) === "allow",
+      });
+      appendFileSync(join(dataDir(), "cron.log"), `[${new Date().toISOString()}] ${j.id} OK\n${out.slice(0, 2000)}\n---\n`);
+      console.log(`[cron ${j.id}] done`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      appendFileSync(join(dataDir(), "cron.log"), `[${new Date().toISOString()}] ${j.id} ERROR ${msg}\n`);
+      console.log(`[cron ${j.id}] error: ${msg}`);
+    }
+    markRun(j.id);
+  }
+}
+
+async function cmdCron(args: string[]): Promise<void> {
+  const sub = args[0];
+  if (sub === "list") {
+    const jobs = loadJobs();
+    if (!jobs.length) console.log("(no jobs)");
+    for (const j of jobs) {
+      const sched = j.everyMinutes ? `every ${j.everyMinutes}m` : `at ${j.at}`;
+      console.log(`${j.id} [${sched}] last=${j.lastRun ?? "never"} :: ${j.prompt.slice(0, 100)}`);
+    }
+    return;
+  }
+  if (sub === "add") {
+    const everyIdx = args.indexOf("--every");
+    const atIdx = args.indexOf("--at");
+    const dashIdx = args.indexOf("--");
+    const prompt = dashIdx >= 0 ? args.slice(dashIdx + 1).join(" ") : args[args.length - 1] ?? "";
+    if (!prompt || prompt.startsWith("--")) {
+      console.log('usage: hextra cron add --every 60 -- "prompt" | --at 07:00 -- "prompt"');
+      return;
+    }
+    const job = addJob(prompt, {
+      everyMinutes: everyIdx >= 0 ? Number(args[everyIdx + 1]) : undefined,
+      at: atIdx >= 0 ? args[atIdx + 1] : undefined,
+    });
+    console.log(`added ${job.id}`);
+    return;
+  }
+  if (sub === "tick") {
+    const cfg = loadConfig();
+    if (!cfg) {
+      console.log("No config. Run 'hextra setup' first.");
+      return;
+    }
+    await cmdCronTick(cfg);
+    return;
+  }
+  console.log("usage: hextra cron <add|list|tick>");
+}
+
+const argv = process.argv.slice(2);
+const cmd = argv[0] ?? "chat";
 if (cmd === "setup" || cmd === "--reset") void cmdSetup();
 else if (cmd === "doctor") void cmdDoctor();
+else if (cmd === "cron") void cmdCron(argv.slice(1));
 else void cmdChat();

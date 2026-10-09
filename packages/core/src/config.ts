@@ -2,6 +2,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 
+export interface McpServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  /** Tool allowlist. Undefined = all tools (runtime approval still asks). */
+  allow?: string[];
+}
+
 export interface HextraConfig {
   baseUrl: string;
   apiKey: string;
@@ -11,6 +19,7 @@ export interface HextraConfig {
   workspace: string;
   theme: "dark" | "light";
   autoSkill: boolean;
+  mcpServers?: McpServerConfig[];
 }
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";

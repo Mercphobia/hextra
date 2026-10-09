@@ -1,6 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@hextra/core/config.js";
+import { searchMemory } from "./fts.js";
 
 function logPath(): string {
   mkdirSync(dataDir(), { recursive: true });
@@ -12,21 +13,5 @@ export function saveMemory(entry: string): void {
 }
 
 export function recallMemory(query: string, limit = 8): string {
-  if (!existsSync(logPath())) return "";
-  const lines = readFileSync(logPath(), "utf8").split("\n").filter(Boolean);
-  const q = query.toLowerCase().split(/\s+/);
-  const scored = lines
-    .map((l) => {
-      try {
-        const o = JSON.parse(l) as { text: string };
-        const t = o.text.toLowerCase();
-        const score = q.filter((w) => w && t.includes(w)).length;
-        return { score, text: o.text };
-      } catch {
-        return { score: 0, text: "" };
-      }
-    })
-    .filter((x) => x.score > 0)
-    .slice(-limit);
-  return scored.map((x) => `- ${x.text}`.slice(0, 300)).join("\n");
+  return searchMemory(query, limit);
 }

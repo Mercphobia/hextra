@@ -1,6 +1,7 @@
 export * from "./registry.js";
 export * from "./fs.js";
 export * from "./glob.js";
+export * from "./mcp.js";
 export * from "./patch.js";
 export * from "./permissions.js";
 export * from "./shell.js";

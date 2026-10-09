@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test packages/core/dist/ packages/tools/dist/"
+    "test": "npm run build && node --test packages/core/dist/ packages/tools/dist/ packages/memory/dist/"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
