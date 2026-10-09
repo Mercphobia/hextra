@@ -20,6 +20,9 @@ export interface HextraConfig {
   theme: "dark" | "light";
   autoSkill: boolean;
   mcpServers?: McpServerConfig[];
+  /** Stored now, consumed by the future messaging gateway. */
+  telegramBotToken?: string;
+  discordBotToken?: string;
 }
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";

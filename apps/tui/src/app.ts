@@ -14,7 +14,7 @@ import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/too
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { wireTools } from "@hextra/tools/wiring.js";
-import { appendFileSync, statSync, existsSync, writeFileSync, renameSync } from "node:fs";
+import { appendFileSync, statSync, existsSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { HEXTRA_VERSION } from "./version.js";
 import { join } from "node:path";
 import { dataDir } from "@hextra/core/config.js";
@@ -27,27 +27,96 @@ function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string>
 
 async function cmdSetup(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  console.log("hextra setup — 9 steps (resumable). Hermes logic, OpenCode-style prompts.");
-  const baseUrl = (await ask(rl, `BaseURL [${DEFAULT_BASE_URL}]: `)) || DEFAULT_BASE_URL;
-  const apiKey = await ask(rl, "API key: ");
-  const model = (await ask(rl, "Model [nous-hermes-2-mistral-7b]: ")) || "nous-hermes-2-mistral-7b";
-  if (!apiKey) {
+  const step = (n: number, name: string) => console.log(`\n[setup ${n}/9] ${name}`);
+  console.log("hextra setup — Hermes logic, OpenCode-style prompts. Empty answer = default [in brackets].");
+
+  step(1, "welcome: environment check");
+  console.log(`node ${process.version} ${process.arch} ${process.platform}`);
+  console.log(`termux: ${process.env.TERMUX_VERSION ?? "no"}`);
+  try {
+    mkdirSync(defaultWorkspace(), { recursive: true });
+    console.log(`workspace writable: ${defaultWorkspace()}`);
+  } catch (e) {
+    console.log(`workspace NOT writable: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  step(2, "auth: cloud API key or local endpoint");
+  const local = (await ask(rl, "Use local endpoint (Ollama/LM Studio)? [n]: ")).toLowerCase();
+  const isLocal = ["y", "yes"].includes(local);
+  const defBase = isLocal ? "http://127.0.0.1:11434/v1" : DEFAULT_BASE_URL;
+
+  step(3, "provider: OpenAI-compatible endpoint + live test");
+  const baseUrl = (await ask(rl, `BaseURL [${defBase}]: `)) || defBase;
+  const apiKey = isLocal ? "local" : await ask(rl, "API key: ");
+  const model = (await ask(rl, "Model [default]: ")) || "default";
+  if (!isLocal && !apiKey) {
     console.log("API key required for cloud primary. Aborted.");
     rl.close();
     return;
   }
   const t = await testConnection({ baseUrl, apiKey, model });
   console.log(`connection test: ${t.ok ? "OK" : "FAIL"} — ${t.detail}`);
+
+  step(4, "fallback model (optional, used when primary is unreachable)");
   const fallbackBaseUrl = await ask(rl, "Fallback baseURL [skip]: ");
+  const fallbackModel = fallbackBaseUrl ? (await ask(rl, "Fallback model [qwen3:4b]: ")) || "qwen3:4b" : undefined;
+
+  step(5, "memory: local file store + skills directory");
+  console.log(`memory: ~/.local/share/hextra/memory.jsonl (ranked FTS, auto-redacted)`);
+  console.log(`skills: ~/.config/hextra/skills/*.md (auto-skill on success)`);
+  const autoSkill = (await ask(rl, "Auto-save skills from 3+ tool turns? [Y/n]: ")).toLowerCase();
+
+  step(6, "connect: messaging platforms (gateway comes later, tokens stored now)");
+  console.log("CLI is always on. Tokens below are stored for the future gateway.");
+  const telegramBotToken = (await ask(rl, "Telegram bot token [skip]: ")) || undefined;
+  const discordBotToken = (await ask(rl, "Discord bot token [skip]: ")) || undefined;
+
+  step(7, "skills + MCP servers");
+  const mcpServers: HextraConfig["mcpServers"] = [];
+  for (;;) {
+    const name = await ask(rl, "Add MCP server name [done]: ");
+    if (!name) break;
+    const command = (await ask(rl, `Command for ${name} [npx]: `)) || "npx";
+    const argsRaw = await ask(rl, "Args (space separated) [none]: ");
+    const allowRaw = await ask(rl, "Tool allowlist (comma separated, empty = all) [all]: ");
+    mcpServers.push({
+      name,
+      command,
+      args: argsRaw ? argsRaw.split(/\s+/) : [],
+      allow: allowRaw ? allowRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  step(8, "schedule: cron jobs");
+  if (process.env.TERMUX_VERSION) {
+    console.log("hint: keep Termux alive with `termux-wake-lock`; run `hextra cron tick` from Termux:JobScheduler or a loop.");
+  } else {
+    console.log("hint: run `hextra cron tick` from systemd timer / cron to execute due jobs.");
+  }
+  const ex = (await ask(rl, 'Add example daily job "summarize workspace" at 07:00? [n]: ')).toLowerCase();
+  let exampleJob = "";
+  if (["y", "yes"].includes(ex)) {
+    exampleJob = addJob("summarize workspace", { at: "07:00" }).id;
+    console.log(`added example job ${exampleJob}`);
+  }
+
+  step(9, "verify + save");
   const workspace = (await ask(rl, `Workspace [${defaultWorkspace()}]: `)) || defaultWorkspace();
   const cfg: HextraConfig = {
     baseUrl, apiKey, model,
     fallbackBaseUrl: fallbackBaseUrl || undefined,
-    fallbackModel: fallbackBaseUrl ? "qwen3:4b" : undefined,
-    workspace, theme: "dark", autoSkill: true,
+    fallbackModel,
+    workspace, theme: "dark",
+    autoSkill: !["n", "no"].includes(autoSkill),
+    telegramBotToken, discordBotToken,
+    mcpServers: mcpServers.length ? mcpServers : undefined,
   };
   saveConfig(cfg);
-  console.log("saved to ~/.config/hextra/config.json (0600). Run 'hextra' to chat.");
+  const v = await testConnection({ baseUrl, apiKey, model });
+  console.log(`final check: ${v.ok ? "OK" : "FAIL"} — ${v.detail}`);
+  console.log("saved to ~/.config/hextra/config.json (0600).");
+  console.log(`summary: model=${model} workspace=${workspace} mcp=${mcpServers.length} cron_example=${exampleJob || "none"}`);
+  console.log("next: `hextra` to chat, `hextra tui` for panels, `hextra doctor` to re-check.");
   rl.close();
 }
 
