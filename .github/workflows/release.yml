@@ -43,4 +43,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: assets/*.tar.gz
+          files: |
+            assets/*.tar.gz
+            scripts/install.sh
