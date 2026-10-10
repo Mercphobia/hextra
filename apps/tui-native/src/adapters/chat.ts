@@ -33,7 +33,7 @@ export interface ChatCallbacks {
  * Chat adapter: transcript signals + turn runner backed by the agent loop.
  * UI components consume signals and supply approval/question dialogs.
  */
-export function createChat(cfg: HextraConfig, session: Session, cb: ChatCallbacks) {
+export function createChat(cfg: HextraConfig, session: Session, cb: ChatCallbacks, opts?: { yolo?: () => boolean }) {
   const [items, setItems] = createSignal<TranscriptItem[]>([]);
   const [draft, setDraft] = createSignal("");
   const [reasoning, setReasoning] = createSignal("");
@@ -93,6 +93,7 @@ export function createChat(cfg: HextraConfig, session: Session, cb: ChatCallback
         tools: listSchemas(),
         handlers: handlers(),
         approve: async (tool: string, args: string) => {
+          if (opts?.yolo?.()) return decide(policy, grants, tool) !== "deny";
           const d = decide(policy, grants, tool);
           if (d === "deny") {
             audit({ tool, args, phase: "denied" });
@@ -153,7 +154,7 @@ export function createChat(cfg: HextraConfig, session: Session, cb: ChatCallback
     }
   }
 
-  return { items, push, draft, reasoning, status, busy, tokTotal, history, send, init, stop };
+  return { items, push, draft, reasoning, status, busy, tokTotal, history, session, send, init, stop };
 }
 
 export type ChatStore = ReturnType<typeof createChat>;
