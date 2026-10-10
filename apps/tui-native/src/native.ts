@@ -62,17 +62,21 @@ export async function runNativeTui(): Promise<void> {
   const header = new core.BoxRenderable(ctx, { border: true, title: "hextra" } as never);
   const headerText = new core.TextRenderable(ctx, { content: "" });
   const logBox = new core.BoxRenderable(ctx, { flexDirection: "column" } as never);
-  const approvalBox = new core.BoxRenderable(ctx, { border: true, borderColor: "yellow", flexDirection: "column" } as never);
+  const draftText = new core.TextRenderable(ctx, { content: "", fg: "white" } as never);
+  const approvalBox = new core.BoxRenderable(ctx, { border: true, borderStyle: "double", borderColor: "yellow", flexDirection: "column" } as never);
   const hintText = new core.TextRenderable(ctx, { content: "", fg: "gray" } as never);
+  const inputBox = new core.BoxRenderable(ctx, { border: true, title: "message", flexDirection: "column" } as never);
   const input = new core.InputRenderable(ctx, { placeholder: "type a message… (/ for commands)" } as never);
   const statusText = new core.TextRenderable(ctx, { content: "", fg: "gray" } as never);
   (renderer.root as unknown as { add: (c: unknown) => void }).add(layout);
   layout.add(header);
   header.add(headerText);
   layout.add(logBox);
+  layout.add(draftText);
   layout.add(approvalBox);
   layout.add(hintText);
-  layout.add(input);
+  layout.add(inputBox);
+  inputBox.add(input);
   layout.add(statusText);
 
   let painted: import("@androidtui/core").BaseRenderable[] = [];
@@ -94,7 +98,7 @@ export async function runNativeTui(): Promise<void> {
         const fg = it.who === "you" ? "green" : it.who === "ai" ? "white" : "gray";
         const prefix = it.who === "you" ? "> " : it.who === "ai" ? "◆ " : "· ";
         if (it.who === "ai") {
-          painted.push(text("◆"));
+          painted.push(text("◆", "white"));
           logBox.add(painted[painted.length - 1]);
           for (const t of tokenizeMarkdown(it.text)) {
             let node: import("@androidtui/core").BaseRenderable | null = null;
@@ -307,7 +311,9 @@ export async function runNativeTui(): Promise<void> {
             pending = { tool, args, resolve };
           });
         },
-        onToken: () => {},
+        onToken: (t: string) => {
+          draftText.content = (draftText.content + t).slice(-2000);
+        },
         onTool: (name: string, phase: "start" | "done" | "denied", ms?: number, detail?: { id: string; args: string; result?: string }) => {
           if (phase === "start") {
             toolsUsed++;
@@ -324,6 +330,7 @@ export async function runNativeTui(): Promise<void> {
         },
       });
       items.push({ kind: "msg", who: "ai", text: out });
+      draftText.content = "";
       history.push(
         { role: "user", content: clamped },
         { role: "assistant", content: out },
