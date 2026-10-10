@@ -55,7 +55,7 @@ function ToolView({ item }: { item: Extract<TItem, { kind: "tool" }> }) {
   const color = item.status === "done" ? "green" : item.status === "denied" ? "red" : "yellow";
   const tail = item.status === "running" ? "…" : item.status === "denied" ? "denied" : `${item.ms}ms`;
   return (
-    <box border borderColor={color} flexDirection="column">
+    <box border borderStyle="rounded" borderColor={color} flexDirection="column">
       <text fg={color}>◈ {item.name} {argSummary(item.name, item.args)} · {tail}</text>
       <DiffView name={item.name} args={item.args} />
       {item.status === "done" && item.result ? (
@@ -317,7 +317,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
 
   return (
     <box flexDirection="column" padding={1}>
-      <box border borderColor="cyan" paddingX={1}>
+      <box border borderStyle="rounded" borderColor="cyan" paddingX={1}>
         <text fg="cyan"><b>hextra</b></text>
         <text> {cwdName}{branch ? ` ⎇${branch}` : ""} · {activeBot ? `${activeBot.name}@` : ""}{cfg.model} · {status}</text>
       </box>
@@ -340,7 +340,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         </box>
       ) : null}
       {picker ? (
-        <box border borderColor="cyan" flexDirection="column" paddingX={1}>
+        <box border borderStyle="rounded" borderColor="cyan" flexDirection="column" paddingX={1}>
           <text><b>Pick a model (Esc cancels)</b></text>
           <select focused options={picker.options} onSelect={(idx) => {
             const r = pickRef.current;
@@ -355,7 +355,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
           {hintHits.map((c) => <text key={c} fg="gray">{c}</text>)}
         </box>
       ) : null}
-      <box border title="message" paddingX={1}>
+      <box border borderStyle="rounded" title="message" paddingX={1}>
         <text fg="green">› </text>
         <input value={query} onInput={setQuery} onSubmit={(v) => void submit(typeof v === "string" ? v : "")} focused={!busy || pending !== null} />
       </box>
