@@ -3,8 +3,10 @@ import { createCliRenderer } from "@opentui/core";
 import { render, useKeyboard } from "@androidtui/solid";
 import { createSignal } from "solid-js";
 import fs from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const LOG = "/tmp/kb.log";
+const LOG = join(homedir(), "kb.log");
 try {
   fs.unlinkSync(LOG);
 } catch {}
