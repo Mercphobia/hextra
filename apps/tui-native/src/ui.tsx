@@ -80,61 +80,155 @@ function Editor({ value, onChange, onSubmit, onExit, disabled, sentHistory }: {
   disabled: boolean;
   sentHistory: string[];
 }) {
-  const textRef = useRef(value);
-  textRef.current = value;
+  const stateRef = useRef({ text: "", cursor: 0, anchor: null as number | null });
+  stateRef.current.text = value;
+  const clampPos = (text: string, p: number) => Math.max(0, Math.min(text.length, p));
+  const lineStarts = (text: string): number[] => {
+    const out = [0];
+    for (let i = 0; i < text.length; i++) if (text[i] === "\n") out.push(i + 1);
+    return out;
+  };
+  const moveLine = (text: string, cursor: number, dir: -1 | 1): number => {
+    const starts = lineStarts(text);
+    let li = 0;
+    for (let i = 0; i < starts.length; i++) if (starts[i] <= cursor) li = i;
+    const col = cursor - starts[li];
+    const target = li + dir;
+    if (target < 0) return 0;
+    if (target >= starts.length) return text.length;
+    const lineEnd = target + 1 < starts.length ? starts[target + 1] - 1 : text.length;
+    return Math.min(starts[target] + col, lineEnd);
+  };
   const histIdx = useRef(-1);
   useKeyboard((k) => {
     if (disabled) return;
+    const st = stateRef.current;
     if (k.name === "c" && k.ctrl) {
       onExit();
       return;
     }
     if (k.name === "escape") {
-      onChange("");
+      if (st.anchor !== null) {
+        st.anchor = null;
+        onChange(st.text);
+      } else {
+        onChange("");
+      }
+      st.cursor = Math.min(st.cursor, st.text.length);
       return;
     }
+    const commit = (text: string, cursor: number, anchor: number | null) => {
+      st.cursor = clampPos(text, cursor);
+      st.anchor = anchor === null ? null : clampPos(text, anchor);
+      onChange(text);
+    };
+    const selRange = (): [number, number] | null => {
+      if (st.anchor === null || st.anchor === st.cursor) return null;
+      return [Math.min(st.anchor, st.cursor), Math.max(st.anchor, st.cursor)];
+    };
     if ((k.name === "return" || k.name === "kpenter") && (k.meta || k.ctrl)) {
-      const v = textRef.current;
-      onChange("");
+      const v = st.text;
+      commit("", 0, null);
       histIdx.current = -1;
       onSubmit(v);
       return;
     }
     if (k.name === "return" || k.name === "kpenter" || k.name === "linefeed") {
-      onChange(textRef.current + "\n");
+      const sel = selRange();
+      const base = sel ? st.text.slice(0, sel[0]) + st.text.slice(sel[1]) : st.text;
+      const at = sel ? sel[0] : st.cursor;
+      commit(`${base.slice(0, at)}\n${base.slice(at)}`, at + 1, null);
       return;
     }
     if (k.name === "backspace") {
-      onChange(textRef.current.slice(0, -1));
+      const sel = selRange();
+      if (sel) {
+        commit(st.text.slice(0, sel[0]) + st.text.slice(sel[1]), sel[0], null);
+      } else if (st.cursor > 0) {
+        commit(st.text.slice(0, st.cursor - 1) + st.text.slice(st.cursor), st.cursor - 1, null);
+      }
       return;
     }
-    if (k.name === "up") {
-      if (sentHistory.length) {
+    if (k.name === "delete") {
+      const sel = selRange();
+      if (sel) {
+        commit(st.text.slice(0, sel[0]) + st.text.slice(sel[1]), sel[0], null);
+      } else if (st.cursor < st.text.length) {
+        commit(st.text.slice(0, st.cursor) + st.text.slice(st.cursor + 1), st.cursor, null);
+      }
+      return;
+    }
+    if (k.name === "left" || k.name === "right") {
+      const dir = k.name === "left" ? -1 : 1;
+      const anchor = k.shift ? (st.anchor ?? st.cursor) : null;
+      commit(st.text, st.cursor + dir, anchor);
+      return;
+    }
+    if (k.name === "up" || k.name === "down") {
+      if (k.shift) {
+        commit(st.text, moveLine(st.text, st.cursor, k.name === "up" ? -1 : 1), st.anchor ?? st.cursor);
+        return;
+      }
+      if (!k.shift && st.text.includes("\n")) {
+        commit(st.text, moveLine(st.text, st.cursor, k.name === "up" ? -1 : 1), null);
+        return;
+      }
+      if (k.name === "up" && sentHistory.length) {
         histIdx.current = Math.min(histIdx.current + 1, sentHistory.length - 1);
-        onChange(sentHistory[sentHistory.length - 1 - histIdx.current] ?? "");
+        const v = sentHistory[sentHistory.length - 1 - histIdx.current] ?? "";
+        commit(v, v.length, null);
+      } else if (k.name === "down") {
+        if (histIdx.current > 0) {
+          histIdx.current -= 1;
+          const v = sentHistory[sentHistory.length - 1 - histIdx.current] ?? "";
+          commit(v, v.length, null);
+        } else {
+          histIdx.current = -1;
+          commit("", 0, null);
+        }
       }
       return;
     }
-    if (k.name === "down") {
-      if (histIdx.current > 0) {
-        histIdx.current -= 1;
-        onChange(sentHistory[sentHistory.length - 1 - histIdx.current] ?? "");
-      } else {
-        histIdx.current = -1;
-        onChange("");
-      }
+    if (k.name === "home") {
+      const starts = lineStarts(st.text);
+      let li = 0;
+      for (let i = 0; i < starts.length; i++) if (starts[i] <= st.cursor) li = i;
+      commit(st.text, starts[li], k.shift ? (st.anchor ?? st.cursor) : null);
+      return;
+    }
+    if (k.name === "end") {
+      const starts = lineStarts(st.text);
+      let li = 0;
+      for (let i = 0; i < starts.length; i++) if (starts[i] <= st.cursor) li = i;
+      const end = li + 1 < starts.length ? starts[li + 1] - 1 : st.text.length;
+      commit(st.text, end, k.shift ? (st.anchor ?? st.cursor) : null);
       return;
     }
     if (k.sequence && k.sequence.length === 1 && !k.ctrl && !k.meta && k.eventType !== "release") {
-      if (k.sequence >= " " || k.sequence === "\t") onChange(textRef.current + k.sequence);
+      if (k.sequence >= " " || k.sequence === "\t") {
+        const sel = selRange();
+        const base = sel ? st.text.slice(0, sel[0]) + st.text.slice(sel[1]) : st.text;
+        const at = sel ? sel[0] : st.cursor;
+        commit(`${base.slice(0, at)}${k.sequence}${base.slice(at)}`, at + 1, null);
+      }
     }
   });
-  const rows = value.split("\n");
+  const st = stateRef.current;
+  st.cursor = clampPos(value, st.cursor);
+  st.anchor = st.anchor === null ? null : clampPos(value, st.anchor);
+  const sel = st.anchor !== null && st.anchor !== st.cursor
+    ? ([Math.min(st.anchor, st.cursor), Math.max(st.anchor, st.cursor)] as const)
+    : null;
+  const before = sel ? value.slice(0, sel[0]) : value.slice(0, st.cursor);
+  const marked = sel ? value.slice(sel[0], sel[1]) : "";
+  const after = sel ? value.slice(sel[1]) : value.slice(st.cursor);
   return (
     <>
-      {rows.map((r, i) => (
-        <text key={i}>{i === rows.length - 1 ? `${r}▊` : r}</text>
+      {before.split("\n").map((r, i, arr) => (
+        <text key={`b${i}`}>{i === arr.length - 1 && !sel ? `${r}▊` : r}</text>
       ))}
+      {sel ? <text><span bg="blue">{`${marked}▊`}</span></text> : null}
+      {after ? <text>{after}</text> : null}
     </>
   );
 }
@@ -238,11 +332,6 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       setStatus("idle");
       return;
     }
-    if (input === "/sessions") {
-      const all = listSessions();
-      push({ kind: "msg", who: "sys", text: all.map((s) => `${s.id} :: ${s.title}`).join("\n") || "(no sessions)" });
-      return;
-    }
     if (input.startsWith("/resume ")) {
       const hit = listSessions().find((s) => s.id.startsWith(input.slice(8).trim()));
       const loaded = hit ? loadSession(hit.id) : null;
@@ -260,7 +349,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       return;
     }
     if (input === "/help") {
-      push({ kind: "msg", who: "sys", text: "/new /model <name> /models /skills /usage /undo /compress /expand /bot <name> /help /quit" });
+      push({ kind: "msg", who: "sys", text: "/new /sessions /resume /rm /model <name> /models /skills /usage /undo /compress /expand /bot <name> /help /quit" });
       return;
     }
     if (input === "/skills") {
@@ -315,20 +404,39 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
           setStatus("idle");
           return;
         }
-        const idx = await new Promise<number>((resolve) => {
-          pickRef.current = resolve;
-          setPicker({ options: models.map((m) => ({ name: m, description: m === cfg.model ? "current" : "" })) });
-        });
-        setPicker(null);
-        if (idx >= 0 && idx < models.length) {
-          cfg.model = models[idx];
-          saveConfig(cfg);
-          push({ kind: "msg", who: "sys", text: `model -> ${cfg.model}` });
-        }
+        pickRef.current = (idx: number) => {
+          if (idx >= 0 && idx < models.length) {
+            cfg.model = models[idx];
+            saveConfig(cfg);
+            push({ kind: "msg", who: "sys", text: `model -> ${cfg.model}` });
+          }
+          setStatus("idle");
+        };
+        setPicker({ options: models.map((m) => ({ name: m, description: m === cfg.model ? "current" : "" })) });
       } catch (e) {
         push({ kind: "msg", who: "sys", text: `models failed: ${e instanceof Error ? e.message : String(e)}` });
+        setStatus("idle");
       }
-      setStatus("idle");
+      return;
+    }
+    if (input === "/sessions") {
+      const all = listSessions();
+      if (!all.length) {
+        push({ kind: "msg", who: "sys", text: "(no sessions)" });
+        return;
+      }
+      pickRef.current = (idx: number) => {
+        if (idx < 0 || idx >= all.length) return;
+        const loaded = loadSession(all[idx].id);
+        if (!loaded) {
+          push({ kind: "msg", who: "sys", text: "session gone" });
+          return;
+        }
+        sessionRef.current = loaded;
+        history.current = loaded.history;
+        push({ kind: "msg", who: "sys", text: `resumed ${loaded.id} :: ${loaded.title}` });
+      };
+      setPicker({ options: all.map((s) => ({ name: s.title || s.id, description: `${s.id.slice(0, 8)} · ${s.updated.slice(0, 10)}` })) });
       return;
     }
     if (input === "/bot" || input.startsWith("/bot ")) {
@@ -489,7 +597,11 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
             const r = pickRef.current;
             pickRef.current = null;
             setPicker(null);
-            r?.(idx);
+            try {
+              r?.(idx);
+            } catch (e) {
+              push({ kind: "msg", who: "sys", text: `picker failed: ${e instanceof Error ? e.message : String(e)}` });
+            }
           }} />
         </box>
       ) : null}
