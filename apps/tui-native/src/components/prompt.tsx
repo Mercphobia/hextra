@@ -32,6 +32,7 @@ export function Prompt(props: {
   const [menu, setMenu] = createSignal<PromptMenu | null>(null);
   const [histIdx, setHistIdx] = createSignal(-1);
   const [lastKey, setLastKey] = createSignal("");
+  let area: { plainText: string; isDestroyed?: boolean } | undefined;
   let submitting = false;
 
   const shell = createMemo(() => value().startsWith("!"));
@@ -72,11 +73,12 @@ export function Prompt(props: {
     setMenu(null);
   };
 
-  const acceptMenu = () => {
+  const acceptIndex = (i: number) => {
     const m = menu();
     if (!m || !m.options.length) return false;
-    const opt = m.options[Math.min(m.index, m.options.length - 1)];
-    const lines = value().split("\n");
+    const opt = m.options[Math.min(Math.max(0, i), m.options.length - 1)];
+    const base = area && !area.isDestroyed ? area.plainText : value();
+    const lines = base.split("\n");
     const last = lines.length - 1;
     lines[last] = lines[last].replace(/[/@][\w./-]*$/, opt.insert);
     setValue(lines.join("\n"));
@@ -84,10 +86,28 @@ export function Prompt(props: {
     return true;
   };
 
+  const acceptMenu = () => {
+    const m = menu();
+    if (!m) return false;
+    return acceptIndex(m.index);
+  };
+
   const submitNow = () => {
     if (submitting) return;
-    const text = value().trim();
+    // Read the buffer directly: the value signal can lag one edit behind
+    // (same race opencode handles by reading input.plainText in submitInner).
+    const live = area && !area.isDestroyed ? area.plainText : value();
+    const text = live.trim();
     if (!text) return;
+    if (menu()) {
+      const n = Number.parseInt(text, 10);
+      if (Number.isFinite(n) && menu()!.options[n - 1]) {
+        acceptIndex(n - 1);
+        return;
+      }
+      setMenu(null);
+      return;
+    }
     submitting = true;
     try {
       setValue("");
@@ -113,6 +133,9 @@ export function Prompt(props: {
       <box border={["left"]} borderColor={shell() ? props.accent : props.border} paddingLeft={2} paddingRight={2} paddingTop={1}>
         <text fg={props.muted}>key: {lastKey()}</text>
         <textarea
+          ref={(r: unknown) => {
+            area = r as { plainText: string; isDestroyed?: boolean } | undefined;
+          }}
           width="100%"
           minHeight={1}
           maxHeight={6}
