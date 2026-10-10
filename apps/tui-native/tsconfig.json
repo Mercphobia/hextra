@@ -1,6 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src", "composite": true, "jsx": "react-jsx", "types": ["node"] },
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "types": ["node"],
+    "jsx": "preserve",
+    "jsxImportSource": "@androidtui/solid"
+  },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "references": [{ "path": "../../packages/core" }, { "path": "../../packages/tools" }, { "path": "../../packages/memory" }]
 }

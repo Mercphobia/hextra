@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src", "composite": true, "jsx": "react-jsx", "types": ["node"] },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "compilerOptions": { "outDir": "dist", "rootDir": "src", "composite": true, "types": ["node"] },
+  "include": ["src/**/*.ts"],
   "references": [{ "path": "../../packages/core" }, { "path": "../../packages/tools" }, { "path": "../../packages/memory" }, { "path": "../../packages/gateway" }, { "path": "../tui-native" }]
 }

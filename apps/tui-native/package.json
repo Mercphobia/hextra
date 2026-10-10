@@ -6,14 +6,12 @@
     ".": "./dist/native.js",
     "./*": "./dist/*"
   },
-  "scripts": { "build": "tsc -b" },
   "dependencies": {
     "@androidtui/core": "0.5.17",
-    "@androidtui/react": "0.5.17",
+    "@androidtui/solid": "0.5.17",
     "@hextra/core": "*",
     "@hextra/memory": "*",
     "@hextra/tools": "*",
-    "react": "^19.2.0",
-    "ws": "^8.18.0"
+    "solid-js": "1.9.12"
   }
 }
