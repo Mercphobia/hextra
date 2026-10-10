@@ -25,7 +25,7 @@ export function Prompt(props: {
   accent: string;
   muted: string;
   border: string;
-  disabled: boolean;
+  focused: boolean;
   onSubmit: (text: string) => void;
 }) {
   const [value, setValue] = createSignal("");
@@ -84,7 +84,7 @@ export function Prompt(props: {
   };
 
   const submitNow = () => {
-    if (submitting || props.disabled) return;
+    if (submitting) return;
     const text = value().trim();
     if (!text) return;
     submitting = true;
@@ -115,6 +115,7 @@ export function Prompt(props: {
           minHeight={1}
           maxHeight={6}
           wrapMode="word"
+          focused={props.focused}
           placeholder={placeholder()}
           placeholderColor={props.muted}
           textColor="white"

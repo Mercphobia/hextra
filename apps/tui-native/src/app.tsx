@@ -341,7 +341,7 @@ function Root(props: { cfg: HextraConfig; onExit: () => void }) {
         accent={theme.accent}
         muted={theme.textMuted}
         border={theme.border}
-        disabled={false}
+        focused={!picker()}
         onSubmit={(v) => void submit(v)}
       />
       <box paddingX={1}>
