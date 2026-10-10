@@ -114,8 +114,7 @@ export async function chatCompletions(
   throw new Error(`provider 429 (rate limited after retries): ${lastErr}`);
 }
 
-export async function testConnection(profile: ProviderProfile): Promise<{ ok: boolean; detail: string }> {
-  try {
+export async function testConnection(profile: ProviderProfile): Promise<{ ok: boolean; detail: string }> {  try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15_000);
     try {
@@ -133,5 +132,22 @@ export async function testConnection(profile: ProviderProfile): Promise<{ ok: bo
     return { ok: true, detail: `chat ok: ${mini.content.slice(0, 40) || "(empty)"}` };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Live model list for the interactive /models picker. */
+export async function listModels(profile: ProviderProfile): Promise<string[]> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch(`${profile.baseUrl.replace(/\/$/, "")}/models`, {
+      signal: ctrl.signal,
+      headers: { authorization: `Bearer ${profile.apiKey}` },
+    });
+    if (!res.ok) throw new Error(`GET /models -> ${res.status}`);
+    const json = (await res.json()) as { data?: { id?: string }[] };
+    return (json.data ?? []).map((m) => m.id ?? "").filter(Boolean).slice(0, 30);
+  } finally {
+    clearTimeout(timer);
   }
 }

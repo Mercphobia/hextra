@@ -1,4 +1,5 @@
 import { loadConfig, saveConfig } from "@hextra/core/config.js";
+import { listModels } from "@hextra/core/llm/openai-client.js";
 import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
 import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
@@ -7,6 +8,7 @@ import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/too
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
+import { execFileSync } from "node:child_process";
 import { clampInput, redactSecrets } from "@hextra/core/secrets.js";
 import { renderDiff } from "@hextra/tools/diff.js";
 import { tokenizeMarkdown } from "@hextra/tools/markdown.js";
@@ -55,6 +57,39 @@ export async function runNativeTui(): Promise<void> {
   let tokTotal = 0;
   let busy = false;
   let pending: { tool: string; args: string; resolve: (ok: boolean) => void } | null = null;
+  let pendingAsk: ((text: string) => void) | null = null;
+  let baseStatus = "idle";
+  let lastTools: { name: string; result: string }[] = [];
+  const askInline = (question: string): Promise<string> => {
+    items.push({ kind: "msg", who: "sys", text: question });
+    paint(baseStatus);
+    return new Promise<string>((resolve) => {
+      pendingAsk = resolve;
+    });
+  };
+  const gitBranch = (() => {
+    try {
+      return execFileSync("git", ["-C", cfg.workspace, "rev-parse", "--abbrev-ref", "HEAD"], { timeout: 3000 }).toString().trim();
+    } catch {
+      return "";
+    }
+  })();
+  const cwdName = cfg.workspace.split("/").filter(Boolean).pop() ?? "~";
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let spinTimer: ReturnType<typeof setInterval> | null = null;
+  let spinBase = "";
+  const spinStart = (label: string) => {
+    spinBase = label;
+    let i = 0;
+    spinStop();
+    spinTimer = setInterval(() => {
+      statusText.content = `${spinBase} ${frames[i++ % frames.length]}`;
+    }, 100);
+  };
+  const spinStop = () => {
+    if (spinTimer) clearInterval(spinTimer);
+    spinTimer = null;
+  };
 
   const renderer = await core.createCliRenderer();
   const ctx = renderer as never;
@@ -175,11 +210,11 @@ export async function runNativeTui(): Promise<void> {
       }
       approvalBox.add(h);
     }
-    headerText.content = `${activeBot ? `${activeBot.name}@` : ""}${cfg.model}`;
+    headerText.content = `${cwdName}${gitBranch ? ` ⎇${gitBranch}` : ""} · ${activeBot ? `${activeBot.name}@` : ""}${cfg.model}`;
     statusText.content = `${cfg.model} · ~${(tokTotal / 1000).toFixed(1)}k · ${status}${pending ? ` · APPROVAL ${pending.tool}` : ""}`;
   };
 
-  const SLASH = ["/new", "/model", "/skills", "/usage", "/undo", "/compress", "/bot", "/help", "/quit"];
+  const SLASH = ["/new", "/model", "/models", "/skills", "/usage", "/undo", "/compress", "/expand", "/bot", "/help", "/quit"];
   input.on("change", () => {
     const v: string = input.value;
     hintText.content = v.startsWith("/") ? SLASH.filter((c) => c.startsWith(v)).slice(0, 6).join("  ") : "";
@@ -204,6 +239,12 @@ export async function runNativeTui(): Promise<void> {
       p.resolve(ans !== "deny");
       return;
     }
+    if (pendingAsk) {
+      const resolve = pendingAsk;
+      pendingAsk = null;
+      resolve(txt);
+      return;
+    }
     if (!txt || busy) return;
     if (txt === "/quit" || txt === "/exit") {
       renderer.destroy();
@@ -216,8 +257,43 @@ export async function runNativeTui(): Promise<void> {
       paint("idle");
       return;
     }
+    if (txt === "/models" || txt.startsWith("/models ")) {
+      paint("fetching models…");
+      try {
+        const models = await listModels({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model });
+        if (!models.length) {
+          items.push({ kind: "msg", who: "sys", text: "(no models listed)" });
+          paint("idle");
+          return;
+        }
+        items.push({ kind: "msg", who: "sys", text: models.map((m, i) => `${i + 1}. ${m}`).join("\n") });
+        paint("idle");
+        const pick = await askInline("pick number (empty cancels):");
+        const n = Number.parseInt(pick, 10);
+        if (pick && Number.isFinite(n) && n >= 1 && n <= models.length) {
+          cfg.model = models[n - 1];
+          saveConfig(cfg);
+          items.push({ kind: "msg", who: "sys", text: `model -> ${cfg.model}` });
+        }
+      } catch (e) {
+        items.push({ kind: "msg", who: "sys", text: `models failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+      paint("idle");
+      return;
+    }
+    if (txt === "/expand") {
+      if (!lastTools.length) {
+        items.push({ kind: "msg", who: "sys", text: "(no tool output yet)" });
+      } else {
+        for (const t of lastTools.slice(-3)) {
+          items.push({ kind: "msg", who: "sys", text: `━━ ${t.name} ━━\n${t.result.slice(0, 3000)}` });
+        }
+      }
+      paint("idle");
+      return;
+    }
     if (txt === "/help") {
-      items.push({ kind: "msg", who: "sys", text: "/new /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
+      items.push({ kind: "msg", who: "sys", text: "/new /model <name> /models /skills /usage /undo /compress /expand /bot <name> /help /quit" });
       paint("idle");
       return;
     }
@@ -288,6 +364,7 @@ export async function runNativeTui(): Promise<void> {
     items.push({ kind: "msg", who: "you", text: clamped });
     paint("thinking…");
     busy = true;
+    spinStart("thinking");
     let toolsUsed = 0;
     const turnCfg = activeBot?.model ? { ...cfg, model: activeBot.model } : cfg;
     const ns = activeBot?.name ?? "";
@@ -324,6 +401,10 @@ export async function runNativeTui(): Promise<void> {
               it.status = phase === "done" ? "done" : "denied";
               it.ms = ms;
               it.result = detail?.result;
+              if (phase === "done") {
+                lastTools.push({ name, result: detail?.result ?? "" });
+                lastTools = lastTools.slice(-10);
+              }
             }
           }
           paint(phase === "start" ? `[tool ${name}] running…` : phase === "done" ? `[tool ${name}] done ${ms}ms` : `[tool ${name}] denied`);
@@ -348,6 +429,7 @@ export async function runNativeTui(): Promise<void> {
       items.push({ kind: "msg", who: "sys", text: `error: ${e instanceof Error ? e.message : String(e)}` });
       paint("error");
     } finally {
+      spinStop();
       busy = false;
       input.focus();
     }
