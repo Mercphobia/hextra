@@ -159,7 +159,7 @@ async function cmdChat(): Promise<void> {
     console.log("No config. Run 'hextra setup' first.");
     return;
   }
-  wireTools(cfg.workspace);
+  wireTools(cfg.workspace, cfg);
   setAskHandler(async (question: string, options: string[]) => {
     console.log(`\n[question] ${question}`);
     options.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
@@ -215,7 +215,7 @@ async function cmdChat(): Promise<void> {
     return false;
   };
 
-  console.log("11 tools ready. /help for commands.");
+  console.log("12 tools ready. /help for commands.");
   rl.on("close", () => mcp.clients.forEach((c) => c.stop()));
   rl.prompt();
   rl.on("line", async (line: string) => {
@@ -379,7 +379,7 @@ async function cmdChat(): Promise<void> {
 }
 
 async function cmdCronTick(cfg: HextraConfig): Promise<void> {
-  wireTools(cfg.workspace);
+  wireTools(cfg.workspace, cfg);
   const policy = loadPolicy();
   const jobs = dueJobs();
   if (!jobs.length) {
@@ -508,7 +508,7 @@ async function cmdBot(args: string[]): Promise<void> {
       console.log('usage: hextra bot ask <name> "prompt"');
       return;
     }
-    wireTools(cfg.workspace);
+    wireTools(cfg.workspace, cfg);
     const profile = bot.model ? { ...cfg, model: bot.model } : cfg;
     const out = await runAgentLoop({
       cfg: profile,

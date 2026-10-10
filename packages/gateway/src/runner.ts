@@ -73,7 +73,7 @@ export async function runTelegramGateway(): Promise<void> {
     return;
   }
   const token = cfg.telegramBotToken;
-  wireTools(cfg.workspace);
+  wireTools(cfg.workspace, cfg);
   try {
     const mcp = await connectMcpServers(cfg.mcpServers ?? []);
     for (const s of mcp.schemas) registerTool(s.function.name, s.function.description, s.function.parameters, mcp.handlers[s.function.name]);

@@ -305,7 +305,7 @@ export async function runInkTui(): Promise<void> {
     console.log("No config. Run 'hextra setup' first.");
     return;
   }
-  wireTools(cfg.workspace);
+  wireTools(cfg.workspace, cfg);
   const mcp = await connectMcpServers(cfg.mcpServers ?? []);
   for (const w of mcp.warnings) console.log(`mcp warn: ${w}`);
   const { registerTool } = await import("@hextra/tools/registry.js");
