@@ -1,7 +1,7 @@
 /** @jsxImportSource @androidtui/solid */
 import { createCliRenderer } from "@opentui/core";
 import { render, useKeyboard } from "@androidtui/solid";
-import { createSignal } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,12 @@ const log = (o: unknown) => fs.appendFileSync(LOG, `${JSON.stringify(o)}\n`);
 function Probe() {
   const [n, setN] = createSignal(0);
   log({ boot: true, hasBun: !!(process.versions as Record<string, string>).bun });
+  onMount(() => log({ mounted: true }));
+  onCleanup(() => log({ cleaned: true }));
+  createEffect(() => {
+    n();
+    log({ effectRan: true });
+  });
   try {
     const stdin = process.stdin as unknown as {
       isTTY?: boolean;
