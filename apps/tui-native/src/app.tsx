@@ -1,7 +1,7 @@
 /** @jsxImportSource @androidtui/solid */
 import { createSignal } from "solid-js";
 import { render, useKeyboard } from "@androidtui/solid";
-import { createCliRenderer } from "@androidtui/core";
+import { createCliRenderer } from "@opentui/core";
 
 function HelloApp(props: { onExit: () => void }) {
   const [typed, setTyped] = createSignal("");
@@ -36,14 +36,18 @@ function HelloApp(props: { onExit: () => void }) {
 }
 
 export async function runNativeTui(): Promise<void> {
-  let core: typeof import("@androidtui/core");
+  // NOTE: the renderer MUST come from "@opentui/core" (the exact copy that
+  // @androidtui/solid uses). A renderer from "@androidtui/core" fails the
+  // instanceof check inside solid's render(), which then spawns a second
+  // CliRenderer and dies with "stdin is already used by another CliRenderer".
+  let create: typeof import("@opentui/core").createCliRenderer;
   try {
-    core = await import("@androidtui/core");
+    ({ createCliRenderer: create } = await import("@opentui/core"));
   } catch (e) {
     console.log(`native TUI unavailable: ${e instanceof Error ? e.message : String(e)}`);
     return;
   }
-  const renderer = await core.createCliRenderer();
+  const renderer = await create();
   await new Promise<void>((resolve) => {
     const exit = () => {
       try {

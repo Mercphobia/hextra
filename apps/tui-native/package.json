@@ -9,6 +9,7 @@
   "dependencies": {
     "@androidtui/core": "0.5.17",
     "@androidtui/solid": "0.5.17",
+    "@opentui/core": "npm:@androidtui/core@0.5.17",
     "@hextra/core": "*",
     "@hextra/memory": "*",
     "@hextra/tools": "*",
