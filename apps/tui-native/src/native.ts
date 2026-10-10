@@ -40,6 +40,10 @@ export async function runNativeTui(): Promise<void> {
     return;
   }
   let core: typeof import("@androidtui/core");
+  const onBun = typeof process !== "undefined" && !!(process.versions as Record<string, string | undefined>).bun;
+  if (!onBun) {
+    console.log("hint: tui-native works best under Bun (bun-termux); Node needs working node:ffi.");
+  }
   try {
     core = await import("@androidtui/core");
   } catch (e) {
@@ -69,7 +73,7 @@ export async function runNativeTui(): Promise<void> {
   };
   const gitBranch = (() => {
     try {
-      return execFileSync("git", ["-C", cfg.workspace, "rev-parse", "--abbrev-ref", "HEAD"], { timeout: 3000 }).toString().trim();
+      return execFileSync("git", ["-C", cfg.workspace, "rev-parse", "--abbrev-ref", "HEAD"], { timeout: 3000, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
     } catch {
       return "";
     }
