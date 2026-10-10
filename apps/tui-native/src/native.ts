@@ -1,1 +1,1 @@
-export { runNativeTui } from "./app.jsx";
+export { runNativeTui } from "./app.js";

@@ -5,7 +5,7 @@
     "rootDir": "src",
     "composite": true,
     "types": ["node"],
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "jsxImportSource": "@androidtui/solid"
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
