@@ -2,11 +2,19 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 
 export function assertInside(workspace: string, target: string): string {
-  const ws = resolve(workspace);
-  const abs = resolve(ws, target);
-  const rel = relative(ws, abs);
-  if (rel.startsWith("..")) throw new Error(`path escape denied: ${target}`);
+  const abs = resolve(workspace, target);
+  const roots = [resolve(workspace), ...extraRoots.map((r) => resolve(r))];
+  const ok = roots.some((root) => root === abs || !relative(root, abs).startsWith(".."));
+  if (!ok) throw new Error(`path escape denied: ${target} (outside workspace and allowed roots)`);
   return abs;
+}
+
+const extraRoots: string[] = [];
+
+/** Additional readable/writable roots beyond the workspace (testing). */
+export function setExtraRoots(roots: string[]): void {
+  extraRoots.length = 0;
+  extraRoots.push(...roots.filter(Boolean));
 }
 
 export function readFile(workspace: string, target: string, maxBytes = 60_000): string {

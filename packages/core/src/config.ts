@@ -20,8 +20,9 @@ export interface HextraConfig {
   fallbackBaseUrl?: string;
   fallbackModel?: string;
   workspace: string;
-  theme: "dark" | "light";
-  autoSkill: boolean;
+  /** Extra readable/writable roots beyond workspace (e.g. Termux home, sdcard). */
+  allowedRoots?: string[];
+  theme: "dark" | "light";  autoSkill: boolean;
   approval?: ApprovalMode;
   mcpServers?: McpServerConfig[];
   /** Consumed by the messaging gateway. */

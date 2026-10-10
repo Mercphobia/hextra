@@ -1,5 +1,5 @@
 import { handlers, listSchemas, registerTool } from "./registry.js";
-import { readFile, grepFiles } from "./fs.js";
+import { readFile, grepFiles, setExtraRoots } from "./fs.js";
 import { globFiles } from "./glob.js";
 import { editFile } from "./patch.js";
 import { runShell } from "./shell.js";
@@ -25,6 +25,7 @@ function arg<T>(json: string, key: string): T {
 
 /** The 12 built-in tools, shared by readline chat, Ink TUI, cron, and bots. */
 export function wireTools(workspace: string, cfg: HextraConfig): void {
+  setExtraRoots(cfg.allowedRoots ?? []);
   registerTool("read_file", "Read a file inside workspace", { type: "object", properties: { path: { type: "string" } } },
     async (a) => readFile(workspace, arg<string>(a, "path")));
   registerTool("write_file", "Write a file inside workspace (asks approval)", { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } },

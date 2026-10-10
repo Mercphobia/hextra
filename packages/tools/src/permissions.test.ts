@@ -47,6 +47,14 @@ describe("sandbox", () => {
   it("rejects path escape", () => {
     assert.throws(() => assertInside("/tmp/ws", "../../etc/passwd"), /path escape/);
   });
+
+  it("allows configured extra roots", async () => {
+    const { setExtraRoots } = await import("./fs.js");
+    setExtraRoots(["/tmp/extra-root"]);
+    assert.equal(assertInside("/tmp/ws", "/tmp/extra-root/f.txt"), "/tmp/extra-root/f.txt");
+    assert.throws(() => assertInside("/tmp/ws", "/etc/passwd"), /path escape/);
+    setExtraRoots([]);
+  });
 });
 
 describe("editFile", () => {

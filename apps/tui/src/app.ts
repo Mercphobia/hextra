@@ -105,11 +105,14 @@ async function cmdSetup(): Promise<void> {
 
   step(9, "verify + save");
   const workspace = (await ask(rl, `Workspace [${defaultWorkspace()}]: `)) || defaultWorkspace();
+  const rootsRaw = await ask(rl, "Extra allowed roots, comma separated (empty = workspace only): ");
+  const allowedRoots = rootsRaw ? rootsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
   const cfg: HextraConfig = {
     baseUrl, apiKey, model,
     fallbackBaseUrl: fallbackBaseUrl || undefined,
     fallbackModel,
     workspace, theme: "dark",
+    allowedRoots,
     autoSkill: !["n", "no"].includes(autoSkill),
     approval,
     telegramBotToken, discordBotToken,
