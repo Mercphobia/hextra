@@ -4,6 +4,7 @@ import { createRoot, useKeyboard } from "@androidtui/react";
 import type { SyntaxStyle } from "@androidtui/core";
 import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
 import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
+import { deleteSession, listSessions, loadSession, newSession, saveSession } from "@hextra/core/sessions.js";
 import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
@@ -24,7 +25,7 @@ export type TItem =
   | { kind: "msg"; who: "you" | "ai" | "sys"; text: string }
   | { kind: "tool"; id: number; callId: string; name: string; args: string; status: "running" | "done" | "denied"; ms?: number; result?: string };
 
-const SLASH = ["/new", "/model", "/models", "/skills", "/usage", "/undo", "/compress", "/expand", "/bot", "/help", "/quit"];
+const SLASH = ["/new", "/sessions", "/resume", "/rm", "/model", "/models", "/skills", "/usage", "/undo", "/compress", "/expand", "/bot", "/help", "/quit"];
 
 function argSummary(name: string, args: string): string {
   try {
@@ -86,6 +87,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
   const history = useRef<ChatMessage[]>([]);
+  const sessionRef = useRef(newSession(cfg.model));
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
   const grants = useRef(new Set<string>());
@@ -161,8 +163,30 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
     if (input === "/new") {
       history.current = [];
       grants.current.clear();
+      sessionRef.current = newSession(cfg.model, activeBot?.name ?? undefined);
       setItems([]);
       setStatus("idle");
+      return;
+    }
+    if (input === "/sessions") {
+      const all = listSessions();
+      push({ kind: "msg", who: "sys", text: all.map((s) => `${s.id} :: ${s.title}`).join("\n") || "(no sessions)" });
+      return;
+    }
+    if (input.startsWith("/resume ")) {
+      const hit = listSessions().find((s) => s.id.startsWith(input.slice(8).trim()));
+      const loaded = hit ? loadSession(hit.id) : null;
+      if (!loaded) {
+        push({ kind: "msg", who: "sys", text: "no such session" });
+        return;
+      }
+      sessionRef.current = loaded;
+      history.current = loaded.history;
+      push({ kind: "msg", who: "sys", text: `resumed ${loaded.id} :: ${loaded.title}` });
+      return;
+    }
+    if (input.startsWith("/rm ")) {
+      push({ kind: "msg", who: "sys", text: deleteSession(input.slice(4).trim()) ? "removed" : "no such session" });
       return;
     }
     if (input === "/help") {
@@ -180,6 +204,8 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
     }
     if (input === "/undo") {
       history.current = history.current.slice(0, -2);
+      sessionRef.current.history = history.current;
+      saveSession(sessionRef.current);
       push({ kind: "msg", who: "sys", text: "(last turn dropped)" });
       return;
     }
@@ -188,6 +214,8 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       setStatus("compressing…");
       try {
         history.current = await compressHistory(turnCfg, history.current);
+        sessionRef.current.history = history.current;
+        saveSession(sessionRef.current);
         push({ kind: "msg", who: "sys", text: "(session compressed)" });
       } catch (e) {
         push({ kind: "msg", who: "sys", text: `compress failed: ${e instanceof Error ? e.message : String(e)}` });
@@ -246,6 +274,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       }
       setActiveBot(bot);
       history.current = [];
+      sessionRef.current = newSession(cfg.model, bot.name);
       push({ kind: "msg", who: "sys", text: `bot -> ${bot.name}` });
       return;
     }
@@ -308,6 +337,9 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       push({ kind: "msg", who: "ai", text: out });
       setDraft("");
       history.current = [...history.current.slice(-18), { role: "user", content: clamped }, { role: "assistant", content: out }];
+      sessionRef.current.history = history.current;
+      sessionRef.current.model = cfg.model;
+      saveSession(sessionRef.current);
       setTokTotal((n) => n + Math.round((clamped.length + out.length) / 4));
       saveMemory(`Q: ${clamped.slice(0, 200)}\nA: ${out.slice(0, 400)}`, ns);
       if (toolsUsed >= 3 && cfg.autoSkill && !out.startsWith("(stopped")) {

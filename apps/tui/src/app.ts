@@ -5,6 +5,7 @@ import {
 } from "@hextra/core/config.js";
 import { testConnection, type ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
+import { deleteSession, listSessions, loadSession, newSession, saveSession, type Session } from "@hextra/core/sessions.js";
 import { addBot, getBot, loadBots, removeBot, type BotProfile } from "@hextra/core/bots.js";
 import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
@@ -135,6 +136,9 @@ async function cmdDoctor(): Promise<void> {
 
 const HELP = [
   "/new — fresh session",
+  "/sessions — list saved sessions",
+  "/resume <id> — resume a session",
+  "/rm <id> — delete a session",
   "/model <name> — switch cloud model",
   "/bot <name> — switch specialist bot",
   "/skills — list saved skills",
@@ -171,6 +175,7 @@ async function cmdChat(): Promise<void> {
   let history: ChatMessage[] = [];
   let toolCount = 0;
   let activeBot: BotProfile | null = null;
+  let session: Session = newSession(cfg.model);
   const system = () => buildSystemPrompt({
     identity: activeBot?.system,
     skills: loadSkills(),
@@ -212,8 +217,32 @@ async function cmdChat(): Promise<void> {
     }
     if (input === "/new") {
       history = [];
+      session = newSession(cfg.model, activeBot?.name);
       sessionGrants.clear();
-      console.log("(fresh session)");
+      console.log(`(fresh session ${session.id})`);
+      return rl.prompt();
+    }
+    if (input === "/sessions") {
+      const all = listSessions();
+      console.log(all.map((s) => `${s.id} :: ${s.title} (${s.updated.slice(0, 10)})`).join("\n") || "(no sessions)");
+      return rl.prompt();
+    }
+    if (input.startsWith("/resume ")) {
+      const id = input.slice(8).trim();
+      const hit = listSessions().find((s) => s.id.startsWith(id));
+      const loaded = hit ? loadSession(hit.id) : null;
+      if (!loaded) {
+        console.log(`no session '${id}'`);
+        return rl.prompt();
+      }
+      session = loaded;
+      history = session.history;
+      activeBot = session.bot ? getBot(session.bot) ?? null : activeBot;
+      console.log(`resumed ${session.id} :: ${session.title}`);
+      return rl.prompt();
+    }
+    if (input.startsWith("/rm ")) {
+      console.log(deleteSession(input.slice(4).trim()) ? "removed" : "no such session");
       return rl.prompt();
     }
     if (input === "/skills") {
@@ -227,6 +256,8 @@ async function cmdChat(): Promise<void> {
     }
     if (input === "/undo") {
       history = history.slice(0, -2);
+      session.history = history;
+      saveSession(session);
       console.log("(last turn dropped)");
       return rl.prompt();
     }
@@ -235,6 +266,8 @@ async function cmdChat(): Promise<void> {
       console.log("(compressing…)");
       try {
         history = await compressHistory(turnCfg, history);
+        session.history = history;
+        saveSession(session);
         console.log("(session compressed)");
       } catch (e) {
         console.log(`compress failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -260,6 +293,7 @@ async function cmdChat(): Promise<void> {
       }
       activeBot = bot;
       history = [];
+      session = newSession(cfg.model, bot.name);
       console.log(`bot -> ${bot.name}${bot.model ? ` (model ${bot.model})` : ""}`);
       return rl.prompt();
     }
@@ -310,6 +344,10 @@ async function cmdChat(): Promise<void> {
       }
       toolCount = 0;
       history = [...history.slice(-18), { role: "user", content: input }, { role: "assistant", content: out }];
+      session.history = history;
+      session.model = cfg.model;
+      session.bot = activeBot?.name;
+      saveSession(session);
       saveMemory(`Q: ${input.slice(0, 200)}\nA: ${out.slice(0, 400)}`, activeBot?.name ?? "");
       rl.prompt();
     }).catch((e: unknown) => {

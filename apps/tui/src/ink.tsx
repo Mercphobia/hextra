@@ -3,6 +3,7 @@ import { Box, Text, render, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
 import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
+import { deleteSession, listSessions, loadSession, newSession, saveSession } from "@hextra/core/sessions.js";
 import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
@@ -31,6 +32,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const [askQ, setAskQ] = useState<{ question: string; options: string[] } | null>(null);
   const askRef = useRef<((text: string) => void) | null>(null);
   const history = useRef<ChatMessage[]>([]);
+  const sessionRef = useRef(newSession(cfg.model));
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
   const grants = useRef(new Set<string>());
@@ -85,12 +87,34 @@ function App({ cfg }: { cfg: HextraConfig }) {
     if (input === "/new") {
       history.current = [];
       grants.current.clear();
+      sessionRef.current = newSession(cfg.model, activeBot?.name ?? undefined);
       setItems([]);
       setStatus("idle");
       return;
     }
+    if (input === "/sessions") {
+      const all = listSessions();
+      push({ kind: "msg", who: "sys", text: all.map((s) => `${s.id} :: ${s.title}`).join("\n") || "(no sessions)" });
+      return;
+    }
+    if (input.startsWith("/resume ")) {
+      const hit = listSessions().find((s) => s.id.startsWith(input.slice(8).trim()));
+      const loaded = hit ? loadSession(hit.id) : null;
+      if (!loaded) {
+        push({ kind: "msg", who: "sys", text: "no such session" });
+        return;
+      }
+      sessionRef.current = loaded;
+      history.current = loaded.history;
+      push({ kind: "msg", who: "sys", text: `resumed ${loaded.id} :: ${loaded.title}` });
+      return;
+    }
+    if (input.startsWith("/rm ")) {
+      push({ kind: "msg", who: "sys", text: deleteSession(input.slice(4).trim()) ? "removed" : "no such session" });
+      return;
+    }
     if (input === "/help") {
-      push({ kind: "msg", who: "sys", text: "/new /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
+      push({ kind: "msg", who: "sys", text: "/new /sessions /resume /rm /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
       return;
     }
     if (input === "/skills") {
@@ -104,6 +128,8 @@ function App({ cfg }: { cfg: HextraConfig }) {
     }
     if (input === "/undo") {
       history.current = history.current.slice(0, -2);
+      sessionRef.current.history = history.current;
+      saveSession(sessionRef.current);
       push({ kind: "msg", who: "sys", text: "(last turn dropped)" });
       return;
     }
@@ -112,6 +138,8 @@ function App({ cfg }: { cfg: HextraConfig }) {
       setStatus("compressing…");
       try {
         history.current = await compressHistory(turnCfg, history.current);
+        sessionRef.current.history = history.current;
+        saveSession(sessionRef.current);
         push({ kind: "msg", who: "sys", text: "(session compressed)" });
       } catch (e) {
         push({ kind: "msg", who: "sys", text: `compress failed: ${e instanceof Error ? e.message : String(e)}` });
@@ -138,6 +166,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
       }
       setActiveBot(bot);
       history.current = [];
+      sessionRef.current = newSession(cfg.model, bot.name);
       push({ kind: "msg", who: "sys", text: `bot -> ${bot.name}` });
       return;
     }
@@ -197,6 +226,9 @@ function App({ cfg }: { cfg: HextraConfig }) {
       setDraft("");
       setTokTotal((n) => n + Math.round((clamped.length + out.length) / 4));
       history.current = [...history.current.slice(-18), { role: "user", content: clamped }, { role: "assistant", content: out }];
+      sessionRef.current.history = history.current;
+      sessionRef.current.model = cfg.model;
+      saveSession(sessionRef.current);
       saveMemory(`Q: ${clamped.slice(0, 200)}\nA: ${out.slice(0, 400)}`, ns);
       if (toolsUsed >= 3 && cfg.autoSkill && !out.startsWith("(stopped")) {
         const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
