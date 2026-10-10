@@ -36,7 +36,6 @@ function Root(props: { cfg: HextraConfig; onExit: () => void }) {
   const [chat, setChat] = createSignal<ReturnType<typeof createChat> | null>(null);
   const [activeBot, setActiveBot] = createSignal<BotProfile | null>(null);
   const [yolo, setYolo] = createSignal(process.argv.includes("--yolo") || cfg.approval === "auto");
-  const [sentHist, setSentHist] = createSignal<string[]>([]);
   const [clearKey, setClearKey] = createSignal(0);
   const [pending, setPending] = createSignal<{ tool: string; args: string } | null>(null);
   const [askQ, setAskQ] = createSignal<{ question: string; options: string[] } | null>(null);
@@ -264,7 +263,6 @@ function Root(props: { cfg: HextraConfig; onExit: () => void }) {
       }
       return;
     }
-    if (!input.startsWith("/")) setSentHist((h) => [...h.slice(-50), input]);
     await c.send(input, activeBot()?.model, activeBot()?.system, activeBot()?.name ?? "");
   };
 
@@ -337,7 +335,6 @@ function Root(props: { cfg: HextraConfig; onExit: () => void }) {
         first={sessions.sessions().length === 0}
         bots={loadBots().map((b) => b.name)}
         commands={SLASH}
-        history={sentHist()}
         accent={theme.accent}
         muted={theme.textMuted}
         border={theme.border}

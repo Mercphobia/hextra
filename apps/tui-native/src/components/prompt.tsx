@@ -9,19 +9,29 @@ export interface PromptMenu {
   options: { label: string; hint: string; insert: string }[];
 }
 
+interface TextArea {
+  plainText: string;
+  isDestroyed?: boolean;
+  clear?: () => void;
+}
+
+let pollStarted = false;
+
 /**
  * Prompt box ported from opencode (packages/tui/src/component/prompt/index.tsx
  * + footer.prompt.tsx RunPromptBody): left-border box, multiline textarea,
- * / and @ autocomplete menus, history navigation, ! shell mode.
- * Adapted: slash/bot/file sources come from props (our adapters); submit keys
- * follow opencode keybinds (return=submit, shift/ctrl/meta+return=newline).
+ * / and @ filter menus, ! shell mode, guarded submit.
+ *
+ * Fork realities (see DEVIATIONS.md): textarea key events and custom
+ * keyBindings are unreliable on this runtime, so Enter inserts a newline and
+ * sending is a trailing blank line (like mobile chat apps). Menu items are
+ * accepted by number. History navigation is unavailable without key events.
  */
 export function Prompt(props: {
   workspace: string;
   first: boolean;
   bots: string[];
   commands: string[];
-  history: string[];
   accent: string;
   muted: string;
   border: string;
@@ -30,16 +40,14 @@ export function Prompt(props: {
 }) {
   const [value, setValue] = createSignal("");
   const [menu, setMenu] = createSignal<PromptMenu | null>(null);
-  const [histIdx, setHistIdx] = createSignal(-1);
-  const [lastKey, setLastKey] = createSignal("");
-  let area: { plainText: string; isDestroyed?: boolean } | undefined;
+  let area: TextArea | undefined;
   let submitting = false;
 
   const shell = createMemo(() => value().startsWith("!"));
   const placeholder = createMemo(() => {
     if (shell()) return 'Run a command... "git status"';
     if (props.first) return 'Ask anything... "Fix a TODO in the codebase"';
-    return "";
+    return "blank line sends";
   });
 
   const refreshMenu = (v: string) => {
@@ -73,68 +81,78 @@ export function Prompt(props: {
     setMenu(null);
   };
 
-  const acceptIndex = (i: number) => {
-    const m = menu();
-    if (!m || !m.options.length) return false;
-    const opt = m.options[Math.min(Math.max(0, i), m.options.length - 1)];
-    const base = area && !area.isDestroyed ? area.plainText : value();
-    const lines = base.split("\n");
-    const last = lines.length - 1;
-    lines[last] = lines[last].replace(/[/@][\w./-]*$/, opt.insert);
-    setValue(lines.join("\n"));
-    setMenu(null);
-    return true;
-  };
-
-  const acceptMenu = () => {
-    const m = menu();
-    if (!m) return false;
-    return acceptIndex(m.index);
+  const doSubmit = (text: string) => {
+    if (submitting) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    submitting = true;
+    try {
+      try {
+        area?.clear?.();
+      } catch {
+        /* buffer keeps text; remount clears */
+      }
+      setValue("");
+      setMenu(null);
+      props.onSubmit(trimmed);
+    } finally {
+      submitting = false;
+    }
   };
 
   const submitNow = () => {
-    if (submitting) return;
-    // Read the buffer directly: the value signal can lag one edit behind
-    // (same race opencode handles by reading input.plainText in submitInner).
+    // Native submit action (if the runtime fires it).
     const live = area && !area.isDestroyed ? area.plainText : value();
-    const text = live.trim();
-    if (!text) return;
-    if (menu()) {
-      const n = Number.parseInt(text, 10);
-      if (Number.isFinite(n) && menu()!.options[n - 1]) {
-        acceptIndex(n - 1);
+    tryAcceptOrSend(live);
+  };
+
+  const tryAcceptOrSend = (live: string) => {
+    const m = menu();
+    if (m) {
+      const n = Number.parseInt(live.trim(), 10);
+      if (Number.isFinite(n) && m.options[n - 1]) {
+        const lines = live.split("\n");
+        const last = lines.length - 1;
+        lines[last] = lines[last].replace(/[/@][\w./-]*$/, m.options[n - 1].insert);
+        setValue(lines.join("\n"));
+        setMenu(null);
         return;
       }
       setMenu(null);
       return;
     }
-    submitting = true;
-    try {
-      setValue("");
-      setMenu(null);
-      setHistIdx(-1);
-      props.onSubmit(text);
-    } finally {
-      submitting = false;
-    }
+    const text = live.replace(/\n+$/, "");
+    if (text.trim()) doSubmit(text);
   };
+
+  if (!pollStarted) {
+    pollStarted = true;
+    setInterval(() => {
+      if (submitting) return;
+      try {
+        const live = area && !area.isDestroyed ? area.plainText : "";
+        if (live.endsWith("\n\n")) tryAcceptOrSend(live);
+      } catch {
+        /* renderer gone */
+      }
+    }, 250);
+  }
 
   return (
     <box flexDirection="column">
       {menu() && menu()!.options.length ? (
         <box flexDirection="column" paddingX={2}>
           {menu()!.options.slice(0, 8).map((o, i) => (
-            <text fg={i === menu()!.index ? props.accent : props.muted}>
-              {i === menu()!.index ? "▸ " : "  "}{o.label}{o.hint ? `  ${o.hint}` : ""}
+            <text fg={props.muted}>
+              {i + 1}. {o.label}{o.hint ? `  ${o.hint}` : ""}
             </text>
           ))}
         </box>
       ) : null}
       <box border={["left"]} borderColor={shell() ? props.accent : props.border} paddingLeft={2} paddingRight={2} paddingTop={1}>
-        <text fg={props.muted}>key: {lastKey()}</text>
         <textarea
           ref={(r: unknown) => {
-            area = r as { plainText: string; isDestroyed?: boolean } | undefined;
+            area = r as TextArea | undefined;
           }}
           width="100%"
           minHeight={1}
@@ -149,59 +167,6 @@ export function Prompt(props: {
             setValue(s);
             refreshMenu(s);
           }}
-          onKeyDown={(e: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; preventDefault?: () => void }) => {
-            setLastKey(`${e.name}${e.ctrl ? "+c" : ""}${e.meta ? "+m" : ""}${e.shift ? "+s" : ""}`);
-            const m = menu();
-            if (m) {
-              if (e.name === "up") {
-                setMenu({ ...m, index: (m.index - 1 + m.options.length) % Math.max(1, m.options.length) });
-                e.preventDefault?.();
-                return;
-              }
-              if (e.name === "down") {
-                setMenu({ ...m, index: (m.index + 1) % Math.max(1, m.options.length) });
-                e.preventDefault?.();
-                return;
-              }
-              if (e.name === "escape") {
-                setMenu(null);
-                e.preventDefault?.();
-                return;
-              }
-              if (e.name === "tab" || e.name === "return") {
-                if (acceptMenu()) e.preventDefault?.();
-                return;
-              }
-            }
-            if (!m && (e.name === "up" || e.name === "down") && !value().includes("\n") && props.history.length) {
-              e.preventDefault?.();
-              if (e.name === "up") {
-                const i = Math.min(histIdx() + 1, props.history.length - 1);
-                setHistIdx(i);
-                const v = props.history[props.history.length - 1 - i] ?? "";
-                setValue(v);
-                refreshMenu(v);
-              } else {
-                if (histIdx() > 0) {
-                  const i = histIdx() - 1;
-                  setHistIdx(i);
-                  const v = props.history[props.history.length - 1 - i] ?? "";
-                  setValue(v);
-                  refreshMenu(v);
-                } else {
-                  setHistIdx(-1);
-                  setValue("");
-                  setMenu(null);
-                }
-              }
-            }
-          }}
-          keyBindings={[
-            { name: "return", action: "submit" },
-            { name: "return", shift: true, action: "newline" },
-            { name: "return", ctrl: true, action: "newline" },
-            { name: "return", meta: true, action: "newline" },
-          ]}
           onSubmit={submitNow}
         />
       </box>
