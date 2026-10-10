@@ -20,7 +20,7 @@ export async function chatWithFallback(
   cfg: HextraConfig,
   messages: ChatMessage[],
   tools: ToolSchema[] = [],
-  opts: { onToken?: (t: string) => void } = {},
+  opts: { onToken?: (t: string) => void; onReasoning?: (t: string) => void } = {},
 ) {
   try {
     return await chatCompletions(primaryProfile(cfg), messages, tools, opts);

@@ -320,6 +320,10 @@ async function cmdChat(): Promise<void> {
         gotToken = true;
         process.stdout.write(t);
       },
+      onReasoning: (t: string) => {
+        gotToken = true;
+        process.stdout.write(`\x1b[2m${t}\x1b[0m`);
+      },
       onTool: (name: string, phase: "start" | "done" | "denied", ms?: number) => {
         if (phase === "start") {
           toolCount++;
@@ -386,6 +390,26 @@ async function cmdCronTick(cfg: HextraConfig): Promise<void> {
     }
     markRun(j.id);
   }
+}
+
+async function cmdGateway(args: string[]): Promise<void> {
+  if (args[0] === "allow" && args[1]) {
+    const cfg = loadConfig();
+    if (!cfg) {
+      console.log("No config. Run 'hextra setup' first.");
+      return;
+    }
+    const id = Number(args[1]);
+    if (!Number.isFinite(id)) {
+      console.log("usage: hextra gateway allow <telegram-user-id>");
+      return;
+    }
+    saveConfig({ ...cfg, allowedTelegramIds: [...new Set([...(cfg.allowedTelegramIds ?? []), id])] });
+    console.log(`allowed telegram user ${id}`);
+    return;
+  }
+  const { runTelegramGateway } = await import("@hextra/gateway/runner.js");
+  await runTelegramGateway();
 }
 
 async function cmdCron(args: string[]): Promise<void> {
@@ -539,6 +563,7 @@ if (cmd === "setup" || cmd === "--reset") void cmdSetup();
 else if (cmd === "doctor") void cmdDoctor();
 else if (cmd === "cron") void cmdCron(argv.slice(1));
 else if (cmd === "bot") void cmdBot(argv.slice(1));
+else if (cmd === "gateway") void cmdGateway(argv.slice(1));
 else if (cmd === "update") void cmdUpdate();
 else if (cmd === "tui") {
   if (!process.stdin.isTTY) {

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@hextra/core": "*",
+    "@hextra/gateway": "*",
     "@hextra/memory": "*",
     "@hextra/tools": "*",
     "@hextra/tui-native": "*",

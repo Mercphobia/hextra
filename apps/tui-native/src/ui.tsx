@@ -72,12 +72,80 @@ function AiMessage({ text, style }: { text: string; style: SyntaxStyle | null })
   return <text>{text}</text>;
 }
 
+function Editor({ value, onChange, onSubmit, onExit, disabled, sentHistory }: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: (v: string) => void;
+  onExit: () => void;
+  disabled: boolean;
+  sentHistory: string[];
+}) {
+  const textRef = useRef(value);
+  textRef.current = value;
+  const histIdx = useRef(-1);
+  useKeyboard((k) => {
+    if (disabled) return;
+    if (k.name === "c" && k.ctrl) {
+      onExit();
+      return;
+    }
+    if (k.name === "escape") {
+      onChange("");
+      return;
+    }
+    if ((k.name === "return" || k.name === "kpenter") && (k.meta || k.ctrl)) {
+      const v = textRef.current;
+      onChange("");
+      histIdx.current = -1;
+      onSubmit(v);
+      return;
+    }
+    if (k.name === "return" || k.name === "kpenter" || k.name === "linefeed") {
+      onChange(textRef.current + "\n");
+      return;
+    }
+    if (k.name === "backspace") {
+      onChange(textRef.current.slice(0, -1));
+      return;
+    }
+    if (k.name === "up") {
+      if (sentHistory.length) {
+        histIdx.current = Math.min(histIdx.current + 1, sentHistory.length - 1);
+        onChange(sentHistory[sentHistory.length - 1 - histIdx.current] ?? "");
+      }
+      return;
+    }
+    if (k.name === "down") {
+      if (histIdx.current > 0) {
+        histIdx.current -= 1;
+        onChange(sentHistory[sentHistory.length - 1 - histIdx.current] ?? "");
+      } else {
+        histIdx.current = -1;
+        onChange("");
+      }
+      return;
+    }
+    if (k.sequence && k.sequence.length === 1 && !k.ctrl && !k.meta && k.eventType !== "release") {
+      if (k.sequence >= " " || k.sequence === "\t") onChange(textRef.current + k.sequence);
+    }
+  });
+  const rows = value.split("\n");
+  return (
+    <>
+      {rows.map((r, i) => (
+        <text key={i}>{i === rows.length - 1 ? `${r}▊` : r}</text>
+      ))}
+    </>
+  );
+}
+
 function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | null; onExit: () => void }) {
   const [items, setItems] = useState<TItem[]>([
     { kind: "msg", who: "sys", text: "hextra native — type / for commands." },
   ]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [reasoning, setReasoning] = useState("");
   const [status, setStatus] = useState("idle");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
@@ -86,9 +154,11 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   const [picker, setPicker] = useState<{ options: { name: string; description: string }[] } | null>(null);
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
+  const [sentHist, setSentHist] = useState<string[]>([]);
   const history = useRef<ChatMessage[]>([]);
   const sessionRef = useRef(newSession(cfg.model));
   const draftRef = useRef("");
+  const reasonRef = useRef("");
   const policy = useRef(loadPolicy());
   const grants = useRef(new Set<string>());
   const approveRef = useRef<((ok: boolean) => void) | null>(null);
@@ -284,10 +354,13 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
     }
     const { text: clamped, truncated } = clampInput(input);
     if (truncated) push({ kind: "msg", who: "sys", text: "(input clamped to 20000 chars)" });
+    if (!input.startsWith("/")) setSentHist((h) => [...h.slice(-50), input]);
     push({ kind: "msg", who: "you", text: clamped });
     setBusy(true);
     setStatus("thinking…");
     draftRef.current = "";
+    reasonRef.current = "";
+    setReasoning("");
     setDraft("");
     let toolsUsed = 0;
     const turnCfg = activeBot?.model ? { ...cfg, model: activeBot.model } : cfg;
@@ -317,6 +390,10 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
           draftRef.current += t;
           setDraft(draftRef.current.slice(-2000));
         },
+        onReasoning: (t: string) => {
+          reasonRef.current += t;
+          setReasoning(reasonRef.current.slice(-1000));
+        },
         onTool: (name: string, phase: "start" | "done" | "denied", ms?: number, detail?: { id: string; args: string; result?: string }) => {
           if (phase === "start") {
             toolsUsed++;
@@ -335,6 +412,8 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         },
       });
       push({ kind: "msg", who: "ai", text: out });
+      setDraft("");
+      setReasoning("");
       setDraft("");
       history.current = [...history.current.slice(-18), { role: "user", content: clamped }, { role: "assistant", content: out }];
       sessionRef.current.history = history.current;
@@ -376,6 +455,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
             )}
           </React.Fragment>);
         })}
+        {reasoning ? <text fg="gray">∴ {reasoning}</text> : null}
         {draft ? <AiMessage text={draft} style={style} /> : null}
       </scrollbox>
       {pending ? (
@@ -426,8 +506,15 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         </box>
       ) : null}
       <box paddingX={1} backgroundColor="#1e293b">
-        <text fg="green">› </text>
-        <input value={query} onInput={setQuery} onSubmit={(v) => void submit(typeof v === "string" ? v : "")} focused={!busy && !pending && !picker && !askQ} />
+        <text fg="gray">Enter newline · Alt+Enter send · ↑ history</text>
+        <Editor
+          value={query}
+          onChange={setQuery}
+          onSubmit={(v) => void submit(v)}
+          onExit={onExit}
+          disabled={busy && !pending && !askQ}
+          sentHistory={sentHist}
+        />
       </box>
       <box paddingX={1}>
         <text fg="gray">{cfg.model} · {listSchemas().length} tools · ~{(tokTotal / 1000).toFixed(1)}k · {status}{pending ? ` · APPROVAL ${pending.tool}` : ""}</text>
@@ -457,6 +544,35 @@ export async function runReactNativeTui(): Promise<void> {
   try {
     const { SyntaxStyle } = await import("@androidtui/core");
     style = SyntaxStyle.create();
+    // Theme token colors from the terminal palette (OpenCode-style adaptive theme).
+    let dark = true;
+    try {
+      const pal = await renderer.getPalette({ timeout: 1500 });
+      const bg = pal.defaultBackground ?? "#000000";
+      const m = bg.replace("#", "");
+      if (m.length >= 6) {
+        const r = parseInt(m.slice(0, 2), 16);
+        const g = parseInt(m.slice(2, 4), 16);
+        const b = parseInt(m.slice(4, 6), 16);
+        dark = (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
+      }
+    } catch { /* keep dark default */ }
+    const tok: Record<string, { fg: string }> = dark
+      ? {
+          keyword: { fg: "#c792ea" }, string: { fg: "#c3e88d" }, comment: { fg: "#546e7a" },
+          function: { fg: "#82aaff" }, type: { fg: "#ffcb6b" }, number: { fg: "#f78c6c" },
+          operator: { fg: "#89ddff" }, variable: { fg: "#eeffff" }, constant: { fg: "#ff9cac" },
+        }
+      : {
+          keyword: { fg: "#7c3aed" }, string: { fg: "#15803d" }, comment: { fg: "#64748b" },
+          function: { fg: "#1d4ed8" }, type: { fg: "#b45309" }, number: { fg: "#c2410c" },
+          operator: { fg: "#0e7490" }, variable: { fg: "#1e293b" }, constant: { fg: "#be123c" },
+        };
+    for (const [name, def] of Object.entries(tok)) {
+      try {
+        style.registerStyle(name, def);
+      } catch { /* unknown scope, ignore */ }
+    }
   } catch {
     style = null;
   }

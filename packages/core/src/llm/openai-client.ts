@@ -26,12 +26,14 @@ export interface ProviderProfile {
 async function readSseStream(
   res: Response,
   onToken: (t: string) => void,
-): Promise<{ content: string; toolCalls: ToolCall[] }> {
+  onReasoning?: (t: string) => void,
+): Promise<{ content: string; reasoning: string; toolCalls: ToolCall[] }> {
   if (!res.body) throw new Error("empty response body");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let content = "";
+  let reasoning = "";
   const toolCalls: ToolCall[] = [];
   for (;;) {
     const { done, value } = await reader.read();
@@ -51,6 +53,10 @@ async function readSseStream(
           content += delta.content;
           onToken(delta.content);
         }
+        if (typeof delta?.reasoning_content === "string") {
+          reasoning += delta.reasoning_content;
+          onReasoning?.(delta.reasoning_content);
+        }
         for (const tc of delta?.tool_calls ?? []) {
           const existing = toolCalls.find((x) => x.id === tc.id || x.function.name === tc.function?.name);
           if (existing && tc.function?.arguments) {
@@ -66,7 +72,7 @@ async function readSseStream(
       } catch { /* skip partial SSE frame */ }
     }
   }
-  return { content, toolCalls };
+  return { content, reasoning, toolCalls };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -75,8 +81,8 @@ export async function chatCompletions(
   profile: ProviderProfile,
   messages: ChatMessage[],
   tools: ToolSchema[] = [],
-  opts: { timeoutMs?: number; onToken?: (t: string) => void } = {},
-): Promise<{ content: string; toolCalls: ToolCall[] }> {
+  opts: { timeoutMs?: number; onToken?: (t: string) => void; onReasoning?: (t: string) => void } = {},
+): Promise<{ content: string; reasoning: string; toolCalls: ToolCall[] }> {
   // Self-hosted providers often rate-limit bursts (e.g. 1 req / 4s).
   // Retry 429s with a cooldown instead of failing the whole turn.
   let lastErr = "";
@@ -106,7 +112,7 @@ export async function chatCompletions(
         continue;
       }
       if (!res.ok) throw new Error(`provider ${res.status}: ${(await res.text()).slice(0, 300)}`);
-      return await readSseStream(res, opts.onToken ?? (() => {}));
+      return await readSseStream(res, opts.onToken ?? (() => {}), opts.onReasoning);
     } finally {
       clearTimeout(timer);
     }

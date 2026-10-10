@@ -14,6 +14,7 @@ export async function runAgentLoop(opts: {
   handlers: Record<string, ToolHandler>;
   maxIterations?: number;
   onToken?: (t: string) => void;
+  onReasoning?: (t: string) => void;
   onTool?: (name: string, phase: "start" | "done" | "denied", ms?: number, detail?: { id: string; args: string; result?: string }) => void;
   approve?: (toolName: string, argsJson: string) => Promise<boolean>;
 }): Promise<string> {
@@ -24,7 +25,7 @@ export async function runAgentLoop(opts: {
   ];
   const max = opts.maxIterations ?? 12;
   for (let i = 0; i < max; i++) {
-    const res = await chatWithFallback(opts.cfg, messages, opts.tools, { onToken: opts.onToken });
+    const res = await chatWithFallback(opts.cfg, messages, opts.tools, { onToken: opts.onToken, onReasoning: opts.onReasoning });
     if (!res.toolCalls.length) {
       messages.push({ role: "assistant", content: res.content });
       return res.content;

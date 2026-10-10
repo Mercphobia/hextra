@@ -24,6 +24,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   ]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [reasoning, setReasoning] = useState("");
   const [status, setStatus] = useState("idle");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
@@ -34,6 +35,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const history = useRef<ChatMessage[]>([]);
   const sessionRef = useRef(newSession(cfg.model));
   const draftRef = useRef("");
+  const reasonRef = useRef("");
   const policy = useRef(loadPolicy());
   const grants = useRef(new Set<string>());
   const pendingRef = useRef<{ resolve: (ok: boolean) => void } | null>(null);
@@ -180,6 +182,8 @@ function App({ cfg }: { cfg: HextraConfig }) {
     setBusy(true);
     setStatus("thinking…");
     draftRef.current = "";
+    reasonRef.current = "";
+    setReasoning("");
     setDraft("");
     let toolsUsed = 0;
     const turnCfg = activeBot?.model ? { ...cfg, model: activeBot.model } : cfg;
@@ -209,6 +213,10 @@ function App({ cfg }: { cfg: HextraConfig }) {
           draftRef.current += t;
           setDraft(draftRef.current.slice(-2000));
         },
+        onReasoning: (t: string) => {
+          reasonRef.current += t;
+          setReasoning(reasonRef.current.slice(-1000));
+        },
         onTool: (name: string, phase: "start" | "done" | "denied", ms?: number, detail?: { id: string; args: string; result?: string }) => {
           if (phase === "start") {
             toolsUsed++;
@@ -224,6 +232,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
       });
       push({ kind: "msg", who: "ai", text: out });
       setDraft("");
+      setReasoning("");
       setTokTotal((n) => n + Math.round((clamped.length + out.length) / 4));
       history.current = [...history.current.slice(-18), { role: "user", content: clamped }, { role: "assistant", content: out }];
       sessionRef.current.history = history.current;
@@ -260,6 +269,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
             {m.who === "you" ? "> " : "· "}{m.text}
           </Text>
         ))}
+        {reasoning ? <Box flexDirection="column"><Text dimColor>∴ {reasoning}</Text></Box> : null}
         {draft ? <Box flexDirection="column"><Text>◆ </Text><Markdown text={draft} /></Box> : null}
       </Box>
       {pending ? <ApprovalBox tool={pending.tool} args={pending.args} /> : null}

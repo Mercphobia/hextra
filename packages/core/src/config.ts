@@ -23,6 +23,7 @@ export interface HextraConfig {
   /** Stored now, consumed by the future messaging gateway. */
   telegramBotToken?: string;
   discordBotToken?: string;
+  allowedTelegramIds?: number[];
 }
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
