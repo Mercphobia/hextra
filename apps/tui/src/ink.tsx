@@ -8,7 +8,7 @@ import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
-import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
+import { decide, loadPolicy, savePolicy, parseApprovalAnswer, effectiveApproval } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
@@ -30,6 +30,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
+  const [yolo, setYolo] = useState(process.argv.includes("--yolo") || effectiveApproval(cfg, false) === "auto");
   const [askQ, setAskQ] = useState<{ question: string; options: string[] } | null>(null);
   const askRef = useRef<((text: string) => void) | null>(null);
   const history = useRef<ChatMessage[]>([]);
@@ -115,8 +116,13 @@ function App({ cfg }: { cfg: HextraConfig }) {
       push({ kind: "msg", who: "sys", text: deleteSession(input.slice(4).trim()) ? "removed" : "no such session" });
       return;
     }
+    if (input === "/yolo") {
+      setYolo((v) => !v);
+      push({ kind: "msg", who: "sys", text: `yolo ${!yolo ? "ON" : "OFF"}` });
+      return;
+    }
     if (input === "/help") {
-      push({ kind: "msg", who: "sys", text: "/new /sessions /resume /rm /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
+      push({ kind: "msg", who: "sys", text: "/new /sessions /resume /rm /yolo /model <name> /skills /usage /undo /compress /bot <name> /help /quit" });
       return;
     }
     if (input === "/skills") {
@@ -197,6 +203,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
         tools: listSchemas(),
         handlers: handlers(),
         approve: async (tool: string, args: string) => {
+          if (yolo) return decide(policy.current, grants.current, tool) !== "deny";
           const d = decide(policy.current, grants.current, tool);
           if (d === "deny") {
             audit({ tool, args, phase: "denied" });

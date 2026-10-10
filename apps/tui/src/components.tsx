@@ -8,7 +8,7 @@ export type TranscriptItem =
   | { kind: "msg"; who: "you" | "ai" | "sys"; text: string }
   | { kind: "tool"; id: number; callId: string; name: string; args: string; status: "running" | "done" | "denied"; ms?: number; result?: string };
 
-export const SLASH_COMMANDS = ["/new", "/model", "/skills", "/usage", "/undo", "/compress", "/bot", "/setup", "/help", "/quit"];
+export const SLASH_COMMANDS = ["/new", "/yolo", "/model", "/skills", "/usage", "/undo", "/compress", "/bot", "/setup", "/help", "/quit"];
 
 function toolArgsSummary(name: string, args: string): string {
   try {

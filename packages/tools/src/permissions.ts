@@ -10,6 +10,16 @@ export interface Policy {
 /** Tools that always ask unless explicitly allowed. Mirrors Hermes approval.py. */
 export const RISKY_TOOLS = new Set(["shell", "write_file", "edit_file"]);
 
+import type { ApprovalMode } from "@hextra/core/config.js";
+export type { ApprovalMode } from "@hextra/core/config.js";
+
+/** effectiveApproval resolves yolo mode: CLI flag wins, then config, default strict. */
+
+export function effectiveApproval(cfg: { approval?: ApprovalMode }, cliYolo: boolean): ApprovalMode {
+  if (cliYolo) return "auto";
+  return cfg.approval ?? "strict";
+}
+
 function path(): string {
   mkdirSync(configDir(), { recursive: true });
   return join(configDir(), "permissions.json");

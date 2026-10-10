@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decide, type Policy } from "./permissions.js";
+import { decide, effectiveApproval, type Policy } from "./permissions.js";
 import { assertInside } from "./fs.js";
 import { editFile } from "./patch.js";
 
 describe("permissions", () => {
   const base: Policy = { allow: ["read_file"], deny: ["shell"] };
+  it("resolves approval mode: flag wins, then config, default strict", () => {
+    assert.equal(effectiveApproval({}, false), "strict");
+    assert.equal(effectiveApproval({ approval: "auto" }, false), "auto");
+    assert.equal(effectiveApproval({ approval: "strict" }, true), "auto");
+    assert.equal(effectiveApproval({}, true), "auto");
+  });
   it("deny wins over everything", () => {
     assert.equal(decide(base, new Set(["shell"]), "shell"), "deny");
   });
@@ -22,8 +28,7 @@ describe("permissions", () => {
     assert.equal(decide(base, new Set(["edit_file"]), "edit_file"), "allow");
   });
 
-  it("parses natural approval answers", async () => {
-    const { parseApprovalAnswer } = await import("./permissions.js");
+  it("parses natural approval answers", async () => {    const { parseApprovalAnswer } = await import("./permissions.js");
     assert.equal(parseApprovalAnswer("al"), "once");
     assert.equal(parseApprovalAnswer("YA"), "once");
     assert.equal(parseApprovalAnswer(""), "once");

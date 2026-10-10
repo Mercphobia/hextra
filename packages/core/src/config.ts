@@ -2,8 +2,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 
-export interface McpServerConfig {
-  name: string;
+/** Approval strictness. strict asks per risky tool; auto allows everything
+ *  except the deny list (yolo mode). */
+export type ApprovalMode = "strict" | "auto";
+
+export interface McpServerConfig {  name: string;
   command: string;
   args?: string[];
   /** Tool allowlist. Undefined = all tools (runtime approval still asks). */
@@ -19,8 +22,9 @@ export interface HextraConfig {
   workspace: string;
   theme: "dark" | "light";
   autoSkill: boolean;
+  approval?: ApprovalMode;
   mcpServers?: McpServerConfig[];
-  /** Stored now, consumed by the future messaging gateway. */
+  /** Consumed by the messaging gateway. */
   telegramBotToken?: string;
   discordBotToken?: string;
   allowedTelegramIds?: number[];

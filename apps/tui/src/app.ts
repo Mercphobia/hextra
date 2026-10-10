@@ -11,7 +11,7 @@ import { addJob, dueJobs, loadJobs, markRun } from "@hextra/core/cron.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { listSchemas, handlers, registerTool } from "@hextra/tools/registry.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
-import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
+import { decide, loadPolicy, savePolicy, parseApprovalAnswer, effectiveApproval } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { wireTools, setAskHandler } from "@hextra/tools/wiring.js";
@@ -66,6 +66,8 @@ async function cmdSetup(): Promise<void> {
   console.log(`memory: ~/.local/share/hextra/memory.jsonl (ranked FTS, auto-redacted)`);
   console.log(`skills: ~/.config/hextra/skills/*.md (auto-skill on success)`);
   const autoSkill = (await ask(rl, "Auto-save skills from 3+ tool turns? [Y/n]: ")).toLowerCase();
+  const approvalRaw = (await ask(rl, "Approval mode strict/auto (auto = yolo, deny-list still blocks)? [strict]: ")).toLowerCase();
+  const approval = approvalRaw === "auto" || approvalRaw === "yolo" ? "auto" as const : "strict" as const;
 
   step(6, "connect: messaging platforms (gateway comes later, tokens stored now)");
   console.log("CLI is always on. Tokens below are stored for the future gateway.");
@@ -109,6 +111,7 @@ async function cmdSetup(): Promise<void> {
     fallbackModel,
     workspace, theme: "dark",
     autoSkill: !["n", "no"].includes(autoSkill),
+    approval,
     telegramBotToken, discordBotToken,
     mcpServers: mcpServers.length ? mcpServers : undefined,
   };
@@ -139,6 +142,7 @@ const HELP = [
   "/sessions — list saved sessions",
   "/resume <id> — resume a session",
   "/rm <id> — delete a session",
+  "/yolo — toggle auto-approve (strict <-> auto)",
   "/model <name> — switch cloud model",
   "/bot <name> — switch specialist bot",
   "/skills — list saved skills",
@@ -172,6 +176,7 @@ async function cmdChat(): Promise<void> {
   if (mcp.schemas.length) console.log(`mcp: ${mcp.schemas.length} tools from ${mcp.clients.length} servers`);
   const policy = loadPolicy();
   const sessionGrants = new Set<string>();
+  let yolo = process.argv.includes("--yolo") || effectiveApproval(cfg, false) === "auto";
   let history: ChatMessage[] = [];
   let toolCount = 0;
   let activeBot: BotProfile | null = null;
@@ -184,6 +189,12 @@ async function cmdChat(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "hextra> " });
 
   const approve = async (tool: string, args: string): Promise<boolean> => {
+    const mode = effectiveApproval(cfg, yolo);
+    if (mode === "auto") {
+      const ok = decide(policy, sessionGrants, tool) !== "deny";
+      if (!ok) console.log(`\n[deny] ${tool} blocked by policy`);
+      return ok;
+    }
     const d = decide(policy, sessionGrants, tool);
     if (d === "allow") return true;
     if (d === "deny") {
@@ -243,6 +254,11 @@ async function cmdChat(): Promise<void> {
     }
     if (input.startsWith("/rm ")) {
       console.log(deleteSession(input.slice(4).trim()) ? "removed" : "no such session");
+      return rl.prompt();
+    }
+    if (input === "/yolo") {
+      yolo = !yolo;
+      console.log(`yolo ${yolo ? "ON (auto-approve, deny-list still blocks)" : "OFF (strict)"}`);
       return rl.prompt();
     }
     if (input === "/skills") {

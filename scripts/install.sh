@@ -11,6 +11,7 @@ install_termux() {
   local src="${HEXTRA_SRC_DIR:-$HOME/hextra}"
   if [ -z "${HEXTRA_SKIP_PKG:-}" ]; then
     pkg update -y && pkg install -y nodejs git
+    pkg install -y uv 2>/dev/null || echo "(optional) uv skipped: Python MCP servers need 'pkg install uv' or pip install uv"
   fi
   if [ -d "$src/.git" ]; then
     echo "updating $src"
