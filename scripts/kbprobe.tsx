@@ -15,6 +15,25 @@ const log = (o: unknown) => fs.appendFileSync(LOG, `${JSON.stringify(o)}\n`);
 function Probe() {
   const [n, setN] = createSignal(0);
   log({ boot: true, hasBun: !!(process.versions as Record<string, string>).bun });
+  try {
+    const stdin = process.stdin as unknown as {
+      isTTY?: boolean;
+      isRaw?: boolean;
+      on: (ev: string, fn: (d: unknown) => void) => void;
+      resume?: () => void;
+      setRawMode?: (v: boolean) => void;
+    };
+    log({ stdinTTY: !!stdin.isTTY, stdinRaw: !!(stdin as { isRaw?: boolean }).isRaw });
+    stdin.on("data", (d) => log({ rawData: String(d).slice(0, 40) }));
+    try {
+      stdin.resume?.();
+      log({ resumed: true });
+    } catch (e) {
+      log({ resumeFail: e instanceof Error ? e.message : String(e) });
+    }
+  } catch (e) {
+    log({ stdinFail: e instanceof Error ? e.message : String(e) });
+  }
   useKeyboard((k) => {
     log({ name: (k as { name?: unknown }).name, seq: (k as { sequence?: unknown }).sequence, ctrl: (k as { ctrl?: unknown }).ctrl, type: (k as { eventType?: unknown }).eventType });
     setN((x) => x + 1);
