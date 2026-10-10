@@ -44,6 +44,29 @@ export function configPath(): string {
   return join(configDir(), "config.json");
 }
 
+export interface HextraTheme {
+  user?: string;
+  ai?: string;
+  sys?: string;
+  accent?: string;
+  success?: string;
+  warning?: string;
+  error?: string;
+  panelBg?: string;
+}
+
+export function themePath(): string {
+  return join(configDir(), "theme.json");
+}
+
+/** Theme overrides, empty when absent or corrupt. */
+export function loadTheme(): HextraTheme {
+  try {
+    if (existsSync(themePath())) return JSON.parse(readFileSync(themePath(), "utf8")) as HextraTheme;
+  } catch { /* defaults */ }
+  return {};
+}
+
 export function defaultWorkspace(): string {
   return join(homedir(), "hextra-workspace");
 }

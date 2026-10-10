@@ -2,12 +2,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, useKeyboard } from "@androidtui/react";
 import type { SyntaxStyle } from "@androidtui/core";
-import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
+import { loadConfig, saveConfig, loadTheme, type HextraConfig } from "@hextra/core/config.js";
 import { runAgentLoop, compressHistory } from "@hextra/core/agent-loop.js";
 import { deleteSession, listSessions, loadSession, newSession, saveSession } from "@hextra/core/sessions.js";
 import { getBot, loadBots, type BotProfile } from "@hextra/core/bots.js";
 import { buildSystemPrompt } from "@hextra/core/prompt-builder.js";
 import { handlers, listSchemas } from "@hextra/tools/registry.js";
+import { globFiles } from "@hextra/tools/glob.js";
 import { connectMcpServers } from "@hextra/tools/mcp.js";
 import { decide, loadPolicy, savePolicy, parseApprovalAnswer, effectiveApproval } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
@@ -25,7 +26,7 @@ export type TItem =
   | { kind: "msg"; who: "you" | "ai" | "sys"; text: string }
   | { kind: "tool"; id: number; callId: string; name: string; args: string; status: "running" | "done" | "denied"; ms?: number; result?: string };
 
-const SLASH = ["/new", "/sessions", "/resume", "/rm", "/yolo", "/model", "/models", "/skills", "/usage", "/undo", "/compress", "/expand", "/bot", "/help", "/quit"];
+const SLASH = ["/new", "/sessions", "/sidebar", "/resume", "/rm", "/yolo", "/model", "/models", "/skills", "/usage", "/undo", "/compress", "/expand", "/bot", "/help", "/quit"];
 
 function argSummary(name: string, args: string): string {
   try {
@@ -72,11 +73,12 @@ function AiMessage({ text, style }: { text: string; style: SyntaxStyle | null })
   return <text>{text}</text>;
 }
 
-function Editor({ value, onChange, onSubmit, onExit, disabled, sentHistory }: {
+function Editor({ value, onChange, onSubmit, onExit, onTab, disabled, sentHistory }: {
   value: string;
   onChange: (v: string) => void;
   onSubmit: (v: string) => void;
   onExit: () => void;
+  onTab: () => void;
   disabled: boolean;
   sentHistory: string[];
 }) {
@@ -115,6 +117,10 @@ function Editor({ value, onChange, onSubmit, onExit, disabled, sentHistory }: {
         onChange("");
       }
       st.cursor = Math.min(st.cursor, st.text.length);
+      return;
+    }
+    if (k.name === "tab") {
+      onTab();
       return;
     }
     const commit = (text: string, cursor: number, anchor: number | null) => {
@@ -249,6 +255,25 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
   const [sentHist, setSentHist] = useState<string[]>([]);
+  const [fileHits, setFileHits] = useState<string[]>([]);
+  const onQueryChange = (v: string) => {
+    setQuery(v);
+    const m = v.match(/@([\w./-]*)$/);
+    if (!m) {
+      if (fileHits.length) setFileHits([]);
+      return;
+    }
+    try {
+      setFileHits(globFiles(cfg.workspace, `*${m[1]}*`).slice(0, 5));
+    } catch {
+      setFileHits([]);
+    }
+  };
+  const completeFile = () => {
+    if (!fileHits.length) return;
+    setQuery((q) => q.replace(/@[\w./-]*$/, `${fileHits[0]} `));
+    setFileHits([]);
+  };
   const [yolo, setYolo] = useState(process.argv.includes("--yolo") || effectiveApproval(cfg, false) === "auto");
   const history = useRef<ChatMessage[]>([]);
   const sessionRef = useRef(newSession(cfg.model));
@@ -268,12 +293,63 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
     }
   }, [cfg.workspace]);
   const cwdName = useMemo(() => cfg.workspace.split("/").filter(Boolean).pop() ?? "~", [cfg.workspace]);
+  const th = useMemo(loadTheme, []);
+  const C = {
+    user: th.user ?? "white",
+    ai: th.ai ?? "white",
+    sys: th.sys ?? "gray",
+    accent: th.accent ?? "cyan",
+    success: th.success ?? "green",
+    warning: th.warning ?? "yellow",
+    error: th.error ?? "red",
+    panel: th.panelBg ?? "#1e293b",
+  };
+  const [sideOpen, setSideOpen] = useState(false);
+  const [sideIdx, setSideIdx] = useState(0);
+  const [sideItems, setSideItems] = useState<{ id: string; title: string }[]>([]);
+  const sideRef = useRef<{ id: string; title: string }[]>([]);
+  const sideIdxRef = useRef(0);
+  const refreshSidebar = () => {
+    const all = listSessions().map((s) => ({ id: s.id, title: s.title || s.id }));
+    sideRef.current = all;
+    setSideItems(all);
+    sideIdxRef.current = 0;
+    setSideIdx(0);
+  };
 
   useKeyboard((k) => {
     if (k.name === "escape" && picker) {
       pickRef.current?.(-1);
       pickRef.current = null;
       setPicker(null);
+      return;
+    }
+    if ((k.ctrl && k.name === "b") && !picker && !pending && !askQ) {
+      if (!sideOpen) refreshSidebar();
+      setSideOpen((v) => !v);
+      return;
+    }
+    if (sideOpen && !picker && !pending && !askQ) {
+      if (k.name === "up") {
+        sideIdxRef.current = Math.max(0, sideIdxRef.current - 1);
+        setSideIdx(sideIdxRef.current);
+        return;
+      }
+      if (k.name === "down") {
+        sideIdxRef.current = Math.min(Math.max(0, sideRef.current.length - 1), sideIdxRef.current + 1);
+        setSideIdx(sideIdxRef.current);
+        return;
+      }
+      if (k.name === "return" && !k.meta && !k.ctrl) {
+        const s = sideRef.current[sideIdxRef.current];
+        setSideOpen(false);
+        if (s) void submit(`/resume ${s.id}`);
+        return;
+      }
+      if (k.name === "escape") {
+        setSideOpen(false);
+        return;
+      }
     }
   });
 
@@ -355,7 +431,12 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
       return;
     }
     if (input === "/help") {
-      push({ kind: "msg", who: "sys", text: "/new /sessions /resume /rm /yolo /model <name> /models /skills /usage /undo /compress /expand /bot <name> /help /quit" });
+      push({ kind: "msg", who: "sys", text: "/new /sessions /sidebar /resume /rm /yolo /model <name> /models /skills /usage /undo /compress /expand /bot <name> /help /quit · @file + Tab completes · Ctrl+B sidebar" });
+      return;
+    }
+    if (input === "/sidebar") {
+      if (!sideOpen) refreshSidebar();
+      setSideOpen((v) => !v);
       return;
     }
     if (input === "/skills") {
@@ -555,6 +636,16 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   return (
     <box flexDirection="column" padding={1}>
       <text fg="gray">{cwdName}{branch ? ` ⎇${branch}` : ""} · {activeBot ? `${activeBot.name}@` : ""}{cfg.model} · {status}</text>
+      <box flexDirection="row" flexGrow={1}>
+        {sideOpen ? (
+          <box flexDirection="column" width={28} paddingX={1} backgroundColor={C.panel}>
+            <text fg={C.accent}>sessions ↑↓ ⏎</text>
+            {sideItems.length ? sideItems.map((s, i) => (
+              <text key={s.id} fg={i === sideIdx ? C.accent : C.sys}>{i === sideIdx ? "▸ " : "  "}{(s.title || s.id).slice(0, 23)}</text>
+            )) : <text fg={C.sys}>(no sessions)</text>}
+          </box>
+        ) : null}
+        <box flexDirection="column" flexGrow={1}>
       <scrollbox stickyScroll stickyStart="bottom">
         {items.map((m, i) => {
           const prev = items[i - 1];
@@ -566,7 +657,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
             ) : m.who === "ai" ? (
               <box flexDirection="column"><text>◆ </text><AiMessage text={m.text} style={style} /></box>
             ) : (
-              <text fg={m.who === "you" ? "white" : "gray"}>{m.who === "you" ? "> " : "· "}{m.text}</text>
+              <text fg={m.who === "you" ? C.user : C.sys}>{m.who === "you" ? "> " : "· "}{m.text}</text>
             )}
           </React.Fragment>);
         })}
@@ -574,7 +665,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         {draft ? <AiMessage text={draft} style={style} /> : null}
       </scrollbox>
       {pending ? (
-        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">          <text fg="yellow">Permission needed: {pending.tool}</text>
+        <box flexDirection="column" paddingX={1} backgroundColor={C.panel}>          <text fg={C.warning}>Permission needed: {pending.tool}</text>
           <text fg="gray">{redactSecrets(pending.args).slice(0, 200)}</text>
           <DiffView name={pending.tool} args={pending.args} />
           <select focused options={[
@@ -598,7 +689,7 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         </box>
       ) : null}
       {picker ? (
-        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">
+        <box flexDirection="column" paddingX={1} backgroundColor={C.panel}>
           <text><b>Pick a model (Esc cancels)</b></text>
           <select focused options={picker.options} onSelect={(idx) => {
             const r = pickRef.current;
@@ -613,10 +704,15 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
         </box>
       ) : null}
       {askQ ? (
-        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">
-          <text fg="cyan">? {askQ.question}</text>
+        <box flexDirection="column" paddingX={1} backgroundColor={C.panel}>
+          <text fg={C.accent}>? {askQ.question}</text>
           {askQ.options.map((o, i) => <text key={i} fg="gray">{i + 1}. {o}</text>)}
           <text fg="gray">number or your own answer</text>
+        </box>
+      ) : null}
+      {fileHits.length && !busy && !pending && !picker && !askQ ? (
+        <box paddingX={2} flexDirection="column">
+          {fileHits.map((f) => <text key={f} fg={C.accent}>{f}  (Tab)</text>)}
         </box>
       ) : null}
       {hintHits.length && !busy && !pending && !picker ? (
@@ -624,19 +720,22 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
           {hintHits.map((c) => <text key={c} fg="gray">{c}</text>)}
         </box>
       ) : null}
-      <box paddingX={1} backgroundColor="#1e293b">
+      <box paddingX={1} backgroundColor={C.panel}>
         <text fg="gray">Enter newline · Alt+Enter send · ↑ history</text>
         <Editor
           value={query}
-          onChange={setQuery}
+          onChange={onQueryChange}
           onSubmit={(v) => void submit(v)}
           onExit={onExit}
-          disabled={busy && !pending && !askQ}
+          onTab={completeFile}
+          disabled={(busy && !pending && !askQ) || sideOpen || picker !== null}
           sentHistory={sentHist}
         />
       </box>
       <box paddingX={1}>
         <text fg="gray">{cfg.model} · {listSchemas().length} tools · ~{(tokTotal / 1000).toFixed(1)}k · {status}{pending ? ` · APPROVAL ${pending.tool}` : ""}</text>
+      </box>
+        </box>
       </box>
     </box>
   );
