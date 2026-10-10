@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadTheme } from "./config.js";
@@ -15,8 +15,7 @@ describe("theme", () => {
   });
 
   it("loads overrides and ignores corrupt files", () => {
-    mkdirSync(join(process.env.HEXTRA_HOME!, ".config", "hextra"), { recursive: true });
-    const p = join(process.env.HEXTRA_HOME!, ".config", "hextra", "theme.json");
+    const p = join(process.env.HEXTRA_HOME!, "theme.json");
     writeFileSync(p, JSON.stringify({ user: "magenta", panelBg: "#111111" }));
     assert.deepEqual(loadTheme(), { user: "magenta", panelBg: "#111111" });
     writeFileSync(p, "{oops");
