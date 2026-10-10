@@ -31,6 +31,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const history = useRef<ChatMessage[]>([]);
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
+  const grants = useRef(new Set<string>());
   const pendingRef = useRef<{ resolve: (ok: boolean) => void } | null>(null);
   const toolSeq = useRef(0);
 
@@ -47,6 +48,8 @@ function App({ cfg }: { cfg: HextraConfig }) {
       if (ans === "always") {
         policy.current.allow.push(tool);
         savePolicy(policy.current);
+      } else if (ans === "once") {
+        grants.current.add(tool);
       }
       push({ kind: "msg", who: "sys", text: ans === "deny" ? `[denied] ${tool}` : `[allowed] ${tool}` });
       setPending(null);
@@ -60,6 +63,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
     }
     if (input === "/new") {
       history.current = [];
+      grants.current.clear();
       setItems([]);
       setStatus("idle");
       return;
@@ -139,7 +143,7 @@ function App({ cfg }: { cfg: HextraConfig }) {
         tools: listSchemas(),
         handlers: handlers(),
         approve: async (tool: string, args: string) => {
-          const d = decide(policy.current, new Set(), tool);
+          const d = decide(policy.current, grants.current, tool);
           if (d === "deny") {
             audit({ tool, args, phase: "denied" });
             return false;

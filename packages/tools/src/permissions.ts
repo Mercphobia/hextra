@@ -33,10 +33,10 @@ export function decide(p: Policy, sessionGrants: Set<string>, tool: string): "al
   return "ask";
 }
 
-/** Natural-language approval answers shared by readline chat and native TUI. */
+/** Natural-language approval answers shared by all TUIs (English + Indonesian). */
 export function parseApprovalAnswer(ans: string): "once" | "always" | "deny" {
   const a = ans.trim().toLowerCase();
-  if (["w", "always"].includes(a)) return "always";
-  if (["a", "al", "allow", "y", "yes", "ya", ""].includes(a)) return "once";
+  if (["w", "always", "selalu"].includes(a)) return "always";
+  if (["a", "al", "allow", "y", "yes", "ya", "iya", "ok", "oke", "okay", "boleh", "lanjut", "gas", "yoi", "sip", "setuju", ""].includes(a)) return "once";
   return "deny";
 }

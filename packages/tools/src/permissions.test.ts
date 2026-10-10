@@ -27,9 +27,14 @@ describe("permissions", () => {
     assert.equal(parseApprovalAnswer("al"), "once");
     assert.equal(parseApprovalAnswer("YA"), "once");
     assert.equal(parseApprovalAnswer(""), "once");
+    assert.equal(parseApprovalAnswer("ok"), "once");
+    assert.equal(parseApprovalAnswer("boleh"), "once");
+    assert.equal(parseApprovalAnswer("gas"), "once");
     assert.equal(parseApprovalAnswer("w"), "always");
+    assert.equal(parseApprovalAnswer("selalu"), "always");
     assert.equal(parseApprovalAnswer("d"), "deny");
     assert.equal(parseApprovalAnswer("no"), "deny");
+    assert.equal(parseApprovalAnswer("jangan"), "deny");
   });
 });
 

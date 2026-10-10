@@ -48,6 +48,7 @@ export async function runNativeTui(): Promise<void> {
 
   wireTools(cfg.workspace);
   const policy = loadPolicy();
+  const grants = new Set<string>();
   const history: ChatMessage[] = [];
   const items: Item[] = [{ kind: "msg", who: "sys", text: "hextra native — type / for commands." }];
   let activeBot: BotProfile | null = null;
@@ -191,6 +192,8 @@ export async function runNativeTui(): Promise<void> {
       if (ans === "always") {
         policy.allow.push(p.tool);
         savePolicy(policy);
+      } else if (ans === "once") {
+        grants.add(p.tool);
       }
       items.push({ kind: "msg", who: "sys", text: ans === "deny" ? `[denied] ${p.tool}` : `[allowed] ${p.tool}` });
       paint(busy ? "thinking…" : "idle");
@@ -204,6 +207,7 @@ export async function runNativeTui(): Promise<void> {
     }
     if (txt === "/new") {
       history.length = 0;
+      grants.clear();
       items.length = 0;
       paint("idle");
       return;
@@ -292,7 +296,7 @@ export async function runNativeTui(): Promise<void> {
         tools: listSchemas(),
         handlers: handlers(),
         approve: async (tool: string, args: string) => {
-          const d = decide(policy, new Set(), tool);
+          const d = decide(policy, grants, tool);
           if (d === "deny") {
             audit({ tool, args, phase: "denied" });
             return false;
