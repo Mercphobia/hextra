@@ -1,3 +1,4 @@
+/** @jsxImportSource @androidtui/solid */
 import { createSignal } from "solid-js";
 import { render, useKeyboard } from "@androidtui/solid";
 import { createCliRenderer } from "@androidtui/core";
