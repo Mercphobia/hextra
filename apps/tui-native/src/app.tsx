@@ -2,8 +2,10 @@
 import { createSignal } from "solid-js";
 import { render, useKeyboard } from "@androidtui/solid";
 import { createCliRenderer } from "@opentui/core";
+import { loadThemeTokens } from "./theme.js";
 
 function HelloApp(props: { onExit: () => void }) {
+  const theme = loadThemeTokens();
   const [typed, setTyped] = createSignal("");
   useKeyboard((k) => {
     if (k.name === "c" && k.ctrl) {
@@ -28,9 +30,9 @@ function HelloApp(props: { onExit: () => void }) {
   });
   return (
     <box flexDirection="column" padding={1}>
-      <text>hextra solid hello — type text, Enter newline, Esc/Ctrl+C exits</text>
-      <text>you typed:</text>
-      <text>{typed()}</text>
+      <text fg={theme.accent}>hextra solid hello — type text, Enter newline, Esc/Ctrl+C exits</text>
+      <text fg={theme.sys}>you typed:</text>
+      <text fg={theme.text}>{typed()}</text>
     </box>
   );
 }
