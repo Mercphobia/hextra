@@ -22,7 +22,8 @@ export interface HextraConfig {
   workspace: string;
   /** Extra readable/writable roots beyond workspace (e.g. Termux home, sdcard). */
   allowedRoots?: string[];
-  theme: "dark" | "light";  autoSkill: boolean;
+  /** Max tool iterations per turn. Default 50. Set 0 for unlimited (watch your quota). */
+  maxIterations?: number;  theme: "dark" | "light";  autoSkill: boolean;
   approval?: ApprovalMode;
   mcpServers?: McpServerConfig[];
   /** Consumed by the messaging gateway. */

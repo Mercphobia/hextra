@@ -107,12 +107,16 @@ async function cmdSetup(): Promise<void> {
   const workspace = (await ask(rl, `Workspace [${defaultWorkspace()}]: `)) || defaultWorkspace();
   const rootsRaw = await ask(rl, "Extra allowed roots, comma separated (empty = workspace only): ");
   const allowedRoots = rootsRaw ? rootsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+  const iterRaw = await ask(rl, "Max tool iterations per turn, 0 = unlimited [50]: ");
+  const iterNum = Number.parseInt(iterRaw, 10);
+  const maxIterations = iterRaw.trim() === "" ? undefined : Number.isFinite(iterNum) && iterNum >= 0 ? iterNum : undefined;
   const cfg: HextraConfig = {
     baseUrl, apiKey, model,
     fallbackBaseUrl: fallbackBaseUrl || undefined,
     fallbackModel,
     workspace, theme: "dark",
     allowedRoots,
+    maxIterations,
     autoSkill: !["n", "no"].includes(autoSkill),
     approval,
     telegramBotToken, discordBotToken,

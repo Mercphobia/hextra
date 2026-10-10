@@ -23,7 +23,8 @@ export async function runAgentLoop(opts: {
     ...(opts.history ?? []),
     { role: "user", content: opts.input },
   ];
-  const max = opts.maxIterations ?? 12;
+  const maxRaw = opts.maxIterations ?? opts.cfg.maxIterations ?? 50;
+  const max = maxRaw <= 0 ? Number.POSITIVE_INFINITY : maxRaw;
   for (let i = 0; i < max; i++) {
     const res = await chatWithFallback(opts.cfg, messages, opts.tools, { onToken: opts.onToken, onReasoning: opts.onReasoning });
     if (!res.toolCalls.length) {
@@ -51,7 +52,7 @@ export async function runAgentLoop(opts: {
       messages.push({ role: "tool", tool_call_id: tc.id, content: out.slice(0, 8000) });
     }
   }
-  return "(stopped: max tool iterations reached)";
+  return `(stopped after ${max} tool iterations — raise maxIterations in config, set 0 for unlimited, or say 'lanjutkan' to continue)`;
 }
 
 /** Summarize a session into one replacement memory turn (OpenCode /compress). */
