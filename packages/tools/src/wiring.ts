@@ -7,6 +7,9 @@ import { webfetch } from "./web.js";
 import { writeFile } from "./write.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { saveSkill } from "@hextra/memory/skills.js";
+import { askUser, setAskHandler } from "./ask.js";
+
+export { setAskHandler };
 
 function arg<T>(json: string, key: string): T {
   return (JSON.parse(json) as Record<string, T>)[key];
@@ -34,4 +37,9 @@ export function wireTools(workspace: string): void {
     async (a) => recallMemory(arg<string>(a, "query")) || "(nothing recalled)");
   registerTool("skill_save", "Save a reusable skill note", { type: "object", properties: { name: { type: "string" }, body: { type: "string" } } },
     async (a) => { saveSkill(arg<string>(a, "name"), arg<string>(a, "body")); return "skill saved"; });
+  registerTool("ask_user", "Ask the user a question with options (use when requirements are ambiguous)", { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" } } } },
+    async (a) => {
+      const parsed = JSON.parse(a) as { question?: string; options?: string[] };
+      return askUser(parsed.question ?? "?", Array.isArray(parsed.options) ? parsed.options.slice(0, 6) : []);
+    });
 }

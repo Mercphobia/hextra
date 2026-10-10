@@ -1,5 +1,6 @@
 export * from "./registry.js";
 export * from "./wiring.js";
+export * from "./ask.js";
 export * from "./diff.js";
 export * from "./fs.js";
 export * from "./markdown.js";

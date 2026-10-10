@@ -13,7 +13,7 @@ import { connectMcpServers } from "@hextra/tools/mcp.js";
 import { decide, loadPolicy, savePolicy, parseApprovalAnswer } from "@hextra/tools/permissions.js";
 import { recallMemory, saveMemory } from "@hextra/memory/db.js";
 import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
-import { wireTools } from "@hextra/tools/wiring.js";
+import { wireTools, setAskHandler } from "@hextra/tools/wiring.js";
 import { appendFileSync, statSync, existsSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { HEXTRA_VERSION } from "./version.js";
 import { join } from "node:path";
@@ -152,6 +152,14 @@ async function cmdChat(): Promise<void> {
     return;
   }
   wireTools(cfg.workspace);
+  setAskHandler(async (question: string, options: string[]) => {
+    console.log(`\n[question] ${question}`);
+    options.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
+    const ans = await ask(rl, "number or your own answer: ");
+    const n = Number.parseInt(ans, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= options.length) return options[n - 1];
+    return ans || "no answer";
+  });
   const mcp = await connectMcpServers(cfg.mcpServers ?? []);
   for (const w of mcp.warnings) console.log(`mcp warn: ${w}`);
   for (const s of mcp.schemas) {
@@ -191,7 +199,7 @@ async function cmdChat(): Promise<void> {
     return false;
   };
 
-  console.log("10 tools ready. /help for commands.");
+  console.log("11 tools ready. /help for commands.");
   rl.on("close", () => mcp.clients.forEach((c) => c.stop()));
   rl.prompt();
   rl.on("line", async (line: string) => {

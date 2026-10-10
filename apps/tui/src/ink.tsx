@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, render, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
@@ -13,7 +13,7 @@ import { listSkills, loadSkills, saveSkill } from "@hextra/memory/skills.js";
 import { audit } from "@hextra/core/audit.js";
 import { clampInput } from "@hextra/core/secrets.js";
 import type { ChatMessage } from "@hextra/core/llm/openai-client.js";
-import { wireTools } from "@hextra/tools/wiring.js";
+import { wireTools, setAskHandler } from "@hextra/tools/wiring.js";
 import { ApprovalBox, SlashHints, ToolBlock, Markdown, type TranscriptItem } from "./components.js";
 
 function App({ cfg }: { cfg: HextraConfig }) {
@@ -28,6 +28,8 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
+  const [askQ, setAskQ] = useState<{ question: string; options: string[] } | null>(null);
+  const askRef = useRef<((text: string) => void) | null>(null);
   const history = useRef<ChatMessage[]>([]);
   const draftRef = useRef("");
   const policy = useRef(loadPolicy());
@@ -36,6 +38,15 @@ function App({ cfg }: { cfg: HextraConfig }) {
   const toolSeq = useRef(0);
 
   const push = (m: TranscriptItem) => setItems((prev) => [...prev.slice(-120), m]);
+
+  useEffect(() => {
+    setAskHandler(async (question: string, options: string[]) => {
+      setAskQ({ question, options });
+      return new Promise<string>((resolve) => {
+        askRef.current = resolve;
+      });
+    });
+  }, []);
 
   const submit = async (value: string) => {
     const input = value.trim();
@@ -54,6 +65,16 @@ function App({ cfg }: { cfg: HextraConfig }) {
       push({ kind: "msg", who: "sys", text: ans === "deny" ? `[denied] ${tool}` : `[allowed] ${tool}` });
       setPending(null);
       p.resolve(ans !== "deny");
+      return;
+    }
+    if (askRef.current) {
+      const resolve = askRef.current;
+      askRef.current = null;
+      setAskQ(null);
+      const n = Number.parseInt(input, 10);
+      const q = askQ;
+      if (q && Number.isFinite(n) && n >= 1 && n <= q.options.length) resolve(q.options[n - 1]);
+      else resolve(input || "no answer");
       return;
     }
     if (!input || busy) return;
@@ -210,6 +231,13 @@ function App({ cfg }: { cfg: HextraConfig }) {
         {draft ? <Box flexDirection="column"><Text>◆ </Text><Markdown text={draft} /></Box> : null}
       </Box>
       {pending ? <ApprovalBox tool={pending.tool} args={pending.args} /> : null}
+      {askQ ? (
+        <Box borderStyle="double" borderColor="cyan" paddingX={1} flexDirection="column">
+          <Text bold color="cyan">? {askQ.question}</Text>
+          {askQ.options.map((o, i) => <Text key={i} dimColor>{i + 1}. {o}</Text>)}
+          <Text dimColor>number or your own answer</Text>
+        </Box>
+      ) : null}
       <SlashHints query={query} />
       <Box borderStyle="single" paddingX={1}>
         <Text color="green">› </Text>

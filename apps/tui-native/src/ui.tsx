@@ -1,5 +1,5 @@
 /** @jsxImportSource @androidtui/react */
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, useKeyboard } from "@androidtui/react";
 import type { SyntaxStyle } from "@androidtui/core";
 import { loadConfig, saveConfig, type HextraConfig } from "@hextra/core/config.js";
@@ -17,6 +17,7 @@ import { renderDiff } from "@hextra/tools/diff.js";
 import { listModels } from "@hextra/core/llm/openai-client.js";
 import type { ChatMessage } from "@hextra/core/llm/openai-client.js";
 import { wireTools } from "@hextra/tools/wiring.js";
+import { setAskHandler } from "@hextra/tools/ask.js";
 import { execFileSync } from "node:child_process";
 
 export type TItem =
@@ -55,7 +56,7 @@ function ToolView({ item }: { item: Extract<TItem, { kind: "tool" }> }) {
   const color = item.status === "done" ? "green" : item.status === "denied" ? "red" : "yellow";
   const tail = item.status === "running" ? "…" : item.status === "denied" ? "denied" : `${item.ms}ms`;
   return (
-    <box border borderStyle="rounded" borderColor={color} flexDirection="column">
+    <box flexDirection="column" paddingLeft={1}>
       <text fg={color}>◈ {item.name} {argSummary(item.name, item.args)} · {tail}</text>
       <DiffView name={item.name} args={item.args} />
       {item.status === "done" && item.result ? (
@@ -79,6 +80,8 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   const [status, setStatus] = useState("idle");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ tool: string; args: string } | null>(null);
+  const [askQ, setAskQ] = useState<{ question: string; options: string[] } | null>(null);
+  const askRef = useRef<((text: string) => void) | null>(null);
   const [picker, setPicker] = useState<{ options: { name: string; description: string }[] } | null>(null);
   const [activeBot, setActiveBot] = useState<BotProfile | null>(null);
   const [tokTotal, setTokTotal] = useState(0);
@@ -87,7 +90,6 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   const policy = useRef(loadPolicy());
   const grants = useRef(new Set<string>());
   const approveRef = useRef<((ok: boolean) => void) | null>(null);
-  const askRef = useRef<((text: string) => void) | null>(null);
   const pickRef = useRef<((index: number) => void) | null>(null);
   const toolSeq = useRef(0);
   const lastTools = useRef<{ name: string; result: string }[]>([]);
@@ -109,6 +111,15 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
   });
 
   const push = (m: TItem) => setItems((prev) => [...prev.slice(-120), m]);
+
+  useEffect(() => {
+    setAskHandler(async (question: string, options: string[]) => {
+      setAskQ({ question, options });
+      return new Promise<string>((resolve) => {
+        askRef.current = resolve;
+      });
+    });
+  }, []);
 
   const askInline = (question: string): Promise<string> => {
     push({ kind: "msg", who: "sys", text: question });
@@ -317,30 +328,50 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
 
   return (
     <box flexDirection="column" padding={1}>
-      <box border borderStyle="rounded" borderColor="cyan" paddingX={1}>
-        <text fg="cyan"><b>hextra</b></text>
-        <text> {cwdName}{branch ? ` ⎇${branch}` : ""} · {activeBot ? `${activeBot.name}@` : ""}{cfg.model} · {status}</text>
-      </box>
+      <text fg="gray">{cwdName}{branch ? ` ⎇${branch}` : ""} · {activeBot ? `${activeBot.name}@` : ""}{cfg.model} · {status}</text>
       <scrollbox stickyScroll stickyStart="bottom">
-        {items.map((m, i) => m.kind === "tool" ? (
-          <ToolView key={`t${m.id}`} item={m} />
-        ) : m.who === "ai" ? (
-          <box key={i} flexDirection="column"><text>◆ </text><AiMessage text={m.text} style={style} /></box>
-        ) : (
-          <text key={i} fg={m.who === "you" ? "green" : "gray"}>{m.who === "you" ? "> " : "· "}{m.text}</text>
-        ))}
+        {items.map((m, i) => {
+          const prev = items[i - 1];
+          const grouped = prev && prev.kind === "tool" && m.kind === "tool" && (prev as { callId: string }).callId === (m as { callId: string }).callId;
+          return (<React.Fragment key={m.kind === "tool" ? `t${m.id}` : `m${i}`}>
+            {!grouped && i > 0 ? <text> </text> : null}
+            {m.kind === "tool" ? (
+              <ToolView item={m} />
+            ) : m.who === "ai" ? (
+              <box flexDirection="column"><text>◆ </text><AiMessage text={m.text} style={style} /></box>
+            ) : (
+              <text fg={m.who === "you" ? "white" : "gray"}>{m.who === "you" ? "> " : "· "}{m.text}</text>
+            )}
+          </React.Fragment>);
+        })}
         {draft ? <AiMessage text={draft} style={style} /> : null}
       </scrollbox>
       {pending ? (
-        <box border borderStyle="double" borderColor="yellow" flexDirection="column" paddingX={1}>
-          <text fg="yellow"><b>Permission needed: {pending.tool}</b></text>
+        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">          <text fg="yellow">Permission needed: {pending.tool}</text>
           <text fg="gray">{redactSecrets(pending.args).slice(0, 200)}</text>
           <DiffView name={pending.tool} args={pending.args} />
-          <text>(a)llow once · al(w)ays · (d)eny [a]</text>
+          <select focused options={[
+            { name: "Allow once", description: "this call" },
+            { name: "Allow always", description: "remember" },
+            { name: "Deny", description: "block" },
+          ]} onSelect={(idx) => {
+            const r = approveRef.current;
+            approveRef.current = null;
+            const tool = pending?.tool ?? "?";
+            if (idx === 1) {
+              policy.current.allow.push(tool);
+              savePolicy(policy.current);
+            } else if (idx === 0) {
+              grants.current.add(tool);
+            }
+            push({ kind: "msg", who: "sys", text: idx === 2 ? `[denied] ${tool}` : `[allowed] ${tool}` });
+            setPending(null);
+            r?.(idx !== 2);
+          }} />
         </box>
       ) : null}
       {picker ? (
-        <box border borderStyle="rounded" borderColor="cyan" flexDirection="column" paddingX={1}>
+        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">
           <text><b>Pick a model (Esc cancels)</b></text>
           <select focused options={picker.options} onSelect={(idx) => {
             const r = pickRef.current;
@@ -350,14 +381,21 @@ function App({ cfg, style, onExit }: { cfg: HextraConfig; style: SyntaxStyle | n
           }} />
         </box>
       ) : null}
+      {askQ ? (
+        <box flexDirection="column" paddingX={1} backgroundColor="#1e293b">
+          <text fg="cyan">? {askQ.question}</text>
+          {askQ.options.map((o, i) => <text key={i} fg="gray">{i + 1}. {o}</text>)}
+          <text fg="gray">number or your own answer</text>
+        </box>
+      ) : null}
       {hintHits.length && !busy && !pending && !picker ? (
         <box paddingX={2} flexDirection="column">
           {hintHits.map((c) => <text key={c} fg="gray">{c}</text>)}
         </box>
       ) : null}
-      <box border borderStyle="rounded" title="message" paddingX={1}>
+      <box paddingX={1} backgroundColor="#1e293b">
         <text fg="green">› </text>
-        <input value={query} onInput={setQuery} onSubmit={(v) => void submit(typeof v === "string" ? v : "")} focused={!busy || pending !== null} />
+        <input value={query} onInput={setQuery} onSubmit={(v) => void submit(typeof v === "string" ? v : "")} focused={!busy && !pending && !picker && !askQ} />
       </box>
       <box paddingX={1}>
         <text fg="gray">{cfg.model} · {listSchemas().length} tools · ~{(tokTotal / 1000).toFixed(1)}k · {status}{pending ? ` · APPROVAL ${pending.tool}` : ""}</text>
