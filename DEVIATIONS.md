@@ -1,5 +1,16 @@
 # DEVIATIONS from opencode / upstream (with reasons)
 
+## OpenTUI experiment RETIRED (back to Ink)
+- Proven on Termux+Bun: the fork renders once, then goes fully static —
+  `onMount`/`createEffect` never run, `useKeyboard` never fires, signal
+  updates never repaint, component event callbacks (`onKeyDown`, `onSubmit`,
+  keyBindings remap) never fire. Only native-internal behavior (typing echo,
+  focus) works. Same code works on Node+Linux, so it is a Bun-runtime
+  incompatibility, not our code.
+- The whole `apps/tui-native` workspace, all `@androidtui/*` + `solid-js`
+  deps, and the alias/postinstall hacks were removed. `hextra tui` (Ink,
+  React 18) is the TUI again. DESIGN_SPEC.md stays as reference.
+
 ## Runtime: Bun effects broken, use Node 26
 - `@androidtui/solid@0.5.17` `useKeyboard`/`onMount`/`createEffect` never fire
   under Bun on Termux (proven: raw stdin bytes arrive, zero `keypress` events,

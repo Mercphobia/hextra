@@ -11,10 +11,6 @@ await build({
   format: "esm",
   outfile: "scripts/sea/bundle.mjs",
   alias: { "react-devtools-core": "./scripts/sea/devtools-stub.js" },
-  // Native OpenTUI bindings must never bundle into SEA (Bionic .so ships
-  // next to the binary on Termux instead). tui-native stays npm/Bun-only.
-  // solid-js rides along as external for the same reason.
-  external: ["@androidtui/*", "solid-js"],
   logLevel: "info",
 });
 mkdirSync("dist-sea", { recursive: true });

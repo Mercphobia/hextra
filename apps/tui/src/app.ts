@@ -582,17 +582,11 @@ else if (cmd === "bot") void cmdBot(argv.slice(1));
 else if (cmd === "gateway") void cmdGateway(argv.slice(1));
 else if (cmd === "update") void cmdUpdate();
 else if (cmd === "tui") {
-  console.log("hextra tui (Ink) was removed in the Solid migration. Use 'hextra tui-native'.");
-} else if (cmd === "tui-native") {
-  const onTermux = !!process.env.TERMUX_VERSION || existsSync("/data/data/com.termux");
-  if (!onTermux) {
-    console.log("tui-native is Termux-only (needs the Android native build). Use 'hextra tui' here.");
-  } else if (!process.stdin.isTTY) {
-    console.log("tui-native needs a TTY.");
+  if (!process.stdin.isTTY) {
+    console.log("hextra tui needs a TTY; use 'hextra' (readline) instead.");
   } else {
-    void import("@hextra/tui-native/native.js").then((m) => m.runNativeTui()).catch((e: unknown) => {
-      console.log(`native TUI failed: ${e instanceof Error ? e.message : String(e)}`);
-      console.log("Falling back: use 'hextra' (readline).");
-    });
+    void import("./ink.js").then((m) => m.runInkTui());
   }
+} else if (cmd === "tui-native") {
+  console.log("tui-native (OpenTUI experiment) was retired: the fork runtime cannot update the screen on Termux. Use 'hextra tui' (Ink).");
 } else void cmdChat();

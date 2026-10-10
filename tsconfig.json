@@ -5,8 +5,7 @@
     { "path": "./packages/tools" },
     { "path": "./packages/memory" },
     { "path": "./packages/gateway" },
-    { "path": "./apps/tui" },
-    { "path": "./apps/tui-native" }
+    { "path": "./apps/tui" }
   ],
   "files": []
 }

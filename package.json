@@ -11,8 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "postinstall": "node scripts/androidtui-alias.mjs || true",
-    "test": "npm run build && node --test packages/core/dist/ packages/tools/dist/ packages/memory/dist/ packages/gateway/dist/ apps/tui/dist/ apps/tui-native/dist/"
+    "test": "npm run build && node --test packages/core/dist/ packages/tools/dist/ packages/memory/dist/ packages/gateway/dist/ apps/tui/dist/"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
