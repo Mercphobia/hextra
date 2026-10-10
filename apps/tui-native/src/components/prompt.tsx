@@ -31,6 +31,7 @@ export function Prompt(props: {
   const [value, setValue] = createSignal("");
   const [menu, setMenu] = createSignal<PromptMenu | null>(null);
   const [histIdx, setHistIdx] = createSignal(-1);
+  const [lastKey, setLastKey] = createSignal("");
   let submitting = false;
 
   const shell = createMemo(() => value().startsWith("!"));
@@ -110,6 +111,7 @@ export function Prompt(props: {
         </box>
       ) : null}
       <box border={["left"]} borderColor={shell() ? props.accent : props.border} paddingLeft={2} paddingRight={2} paddingTop={1}>
+        <text fg={props.muted}>key: {lastKey()}</text>
         <textarea
           width="100%"
           minHeight={1}
@@ -125,6 +127,7 @@ export function Prompt(props: {
             refreshMenu(s);
           }}
           onKeyDown={(e: { name: string; shift?: boolean; ctrl?: boolean; meta?: boolean; preventDefault?: () => void }) => {
+            setLastKey(`${e.name}${e.ctrl ? "+c" : ""}${e.meta ? "+m" : ""}${e.shift ? "+s" : ""}`);
             const m = menu();
             if (m) {
               if (e.name === "up") {
