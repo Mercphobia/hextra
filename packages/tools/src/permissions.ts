@@ -17,7 +17,7 @@ export type { ApprovalMode } from "@hextra/core/config.js";
 
 export function effectiveApproval(cfg: { approval?: ApprovalMode }, cliYolo: boolean): ApprovalMode {
   if (cliYolo) return "auto";
-  return cfg.approval ?? "strict";
+  return cfg.approval ?? "auto";
 }
 
 function path(): string {

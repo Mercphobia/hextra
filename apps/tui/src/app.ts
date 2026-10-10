@@ -66,8 +66,8 @@ async function cmdSetup(): Promise<void> {
   console.log(`memory: ~/.local/share/hextra/memory.jsonl (ranked FTS, auto-redacted)`);
   console.log(`skills: ~/.config/hextra/skills/*.md (auto-skill on success)`);
   const autoSkill = (await ask(rl, "Auto-save skills from 3+ tool turns? [Y/n]: ")).toLowerCase();
-  const approvalRaw = (await ask(rl, "Approval mode strict/auto (auto = yolo, deny-list still blocks)? [strict]: ")).toLowerCase();
-  const approval = approvalRaw === "auto" || approvalRaw === "yolo" ? "auto" as const : "strict" as const;
+  const approvalRaw = (await ask(rl, "Approval mode strict/auto (auto = yolo, deny-list still blocks)? [auto]: ")).toLowerCase();
+  const approval = approvalRaw === "strict" ? "strict" as const : "auto" as const;
 
   step(6, "connect: messaging platforms (gateway comes later, tokens stored now)");
   console.log("CLI is always on. Tokens below are stored for the future gateway.");

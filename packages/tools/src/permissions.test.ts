@@ -9,11 +9,11 @@ import { editFile } from "./patch.js";
 
 describe("permissions", () => {
   const base: Policy = { allow: ["read_file"], deny: ["shell"] };
-  it("resolves approval mode: flag wins, then config, default strict", () => {
-    assert.equal(effectiveApproval({}, false), "strict");
+  it("resolves approval mode: flag wins, then config, default auto", () => {
+    assert.equal(effectiveApproval({}, false), "auto");
     assert.equal(effectiveApproval({ approval: "auto" }, false), "auto");
     assert.equal(effectiveApproval({ approval: "strict" }, true), "auto");
-    assert.equal(effectiveApproval({}, true), "auto");
+    assert.equal(effectiveApproval({ approval: "strict" }, false), "strict");
   });
   it("deny wins over everything", () => {
     assert.equal(decide(base, new Set(["shell"]), "shell"), "deny");
