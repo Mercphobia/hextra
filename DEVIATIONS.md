@@ -25,3 +25,13 @@
 - The Bionic `.so` ships via npm optional dep; a postinstall symlink satisfies
   the loader's prebuilt-path check (the loader's npm fallback names don't
   exist — fork bug, worked around, not fixed upstream).
+
+## Prompt box port (phase 4a)
+- Fork reconciler types have no `key` prop: lists render without keys.
+- Submit keys remapped to opencode binds (return=submit,
+  shift/ctrl/meta+return=newline) via merged `keyBindings`.
+- Stubbed (no equivalent in our agent): IME composition flush, paste
+  attachments/images, editor selection context, prompt stash, workspace move
+  dialog, session auto-create with workspaces, model-variant picker.
+- `@` mentions complete bots + files only (no skill/agent providers).
+- History navigates sent prompts only (no persistent cross-session history).
